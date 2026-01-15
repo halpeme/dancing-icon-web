@@ -77,10 +77,13 @@
       width: 100%;
       height: 100%;
       object-fit: contain;
-      transition: transform 0.2s ease-out;
       will-change: transform;
       transform: translateZ(0);
       backface-visibility: visible;
+    }
+
+    .sticker img.dancing {
+      transition: transform 0.2s ease-out;
     }
 
     .sticker img.spinning {
@@ -146,6 +149,9 @@
   <div id="status" class="disconnected">Connecting...</div>
 
   <script>
+    // VERSION 4 - Slower, bigger bounce
+    console.log('%c STAGE VERSION 4 - Slow Big Bounce ', 'background: #0ff; color: #000; font-size: 20px;');
+
     // DOM elements
     const stage = document.getElementById('stage');
     const qrOverlay = document.getElementById('qr-overlay');
@@ -154,11 +160,33 @@
 
     // Sticker state: Map of id -> { div, img, physics }
     const stickers = new Map();
-    const STICKER_SIZE = 150; // pixels (matches CSS)
+    const STICKER_SIZE = 350; // pixels (matches CSS)
     const BOUNCE_DAMPING = 0.8; // Energy retained after collision
 
     function randomRange(min, max) {
       return Math.random() * (max - min) + min;
+    }
+
+    // Bounce entrance effect
+    // Returns 0 at t=0, grows to peak at t=0.6, settles to 1.0 at t=1
+    function elasticEaseOut(t) {
+      if (t <= 0) return 0;
+      if (t >= 1) return 1;
+
+      const peakScale = 1.8;  // Maximum overshoot (80% bigger than normal)
+      const peakTime = 0.6;   // When to hit peak (60% through animation)
+
+      if (t < peakTime) {
+        // Grow from 0 to peakScale with ease-out curve
+        const progress = t / peakTime;
+        const eased = 1 - Math.pow(1 - progress, 3);  // Cubic ease-out
+        return eased * peakScale;
+      } else {
+        // Settle from peakScale to 1.0 with ease-in-out
+        const progress = (t - peakTime) / (1 - peakTime);
+        const eased = progress * progress * (3 - 2 * progress);  // Smoothstep
+        return peakScale - (peakScale - 1) * eased;
+      }
     }
 
     // Physics state per sticker
@@ -182,7 +210,12 @@
         danceTranslateX: 0,
         danceTranslateY: 0,
         danceScale: 1,
-        danceSkewX: 0
+        danceSkewX: 0,
+        // Entrance animation state
+        isEntering: true,
+        entranceStartTime: null,  // Set on first frame
+        entranceDuration: randomRange(2500, 3000),  // Slow and dramatic
+        entranceProgress: 0  // 0 to 1
       };
     }
 
@@ -252,6 +285,20 @@
       // Update positions and dance animations
       for (const [id, sticker] of stickers) {
         const physics = sticker.physics;
+
+        // Update entrance animation
+        if (physics.isEntering) {
+          if (physics.entranceStartTime === null) {
+            physics.entranceStartTime = timestamp;
+          }
+
+          const elapsed = timestamp - physics.entranceStartTime;
+          physics.entranceProgress = Math.min(elapsed / physics.entranceDuration, 1);
+
+          if (physics.entranceProgress >= 1) {
+            physics.isEntering = false;
+          }
+        }
 
         // Apply velocity (position movement)
         physics.x += physics.vx * dt;
@@ -323,13 +370,32 @@
         div.style.left = (physics.x - STICKER_SIZE / 2) + 'px';
         div.style.top = (physics.y - STICKER_SIZE / 2) + 'px';
 
+        // Calculate entrance scale
+        let entranceScale = 1;
+        if (physics.isEntering) {
+          entranceScale = elasticEaseOut(physics.entranceProgress);
+          img.classList.remove('dancing');  // No CSS transitions during entrance
+          // Debug: log every 10%
+          const pct = Math.floor(physics.entranceProgress * 10);
+          if (!physics._lastLoggedPct || physics._lastLoggedPct !== pct) {
+            physics._lastLoggedPct = pct;
+            console.log(`Entrance: ${pct * 10}% -> scale=${entranceScale.toFixed(2)}`);
+          }
+        } else if (!img.classList.contains('dancing')) {
+          img.classList.add('dancing');  // Enable CSS transitions after entrance
+        }
+
         // Update image transform with dance animation (like old system)
         if (physics.isSpinning) {
           img.classList.add('spinning');
-          img.style.transform = `rotateY(${physics.currentYRotation}deg)`;
+          img.style.transform = `
+            scale(${entranceScale})
+            rotateY(${physics.currentYRotation}deg)
+          `;
         } else {
           img.classList.remove('spinning');
           img.style.transform = `
+            scale(${entranceScale})
             rotateY(${physics.currentYRotation}deg)
             rotate(${physics.danceRotation}deg)
             translate(${physics.danceTranslateX}px, ${physics.danceTranslateY}px)
@@ -383,7 +449,7 @@
       const physics = createPhysicsState(x, y);
       stickers.set(stickerData.id, { div, img, physics });
 
-      console.log(`Added sticker at (${Math.round(x)}, ${Math.round(y)}) with velocity (${Math.round(physics.vx)}, ${Math.round(physics.vy)})`);
+      console.log(`Added sticker at (${Math.round(x)}, ${Math.round(y)}) with velocity (${Math.round(physics.vx)}, ${Math.round(physics.vy)}), entrance duration: ${physics.entranceDuration}ms`);
 
       // Hide QR when first sticker arrives
       if (stickers.size === 1) {
