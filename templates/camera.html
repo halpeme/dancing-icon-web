@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Add Sticker</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: white;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    /* Camera/File input area */
+    #capture-area {
+      width: 100%;
+      max-width: 400px;
+      aspect-ratio: 1;
+      background: #2d2d44;
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      border: 3px dashed #4a4a6a;
+      transition: border-color 0.2s;
+    }
+
+    #capture-area:hover {
+      border-color: #6c63ff;
+    }
+
+    #capture-area svg {
+      width: 80px;
+      height: 80px;
+      fill: #6c63ff;
+      margin-bottom: 16px;
+    }
+
+    #capture-area p {
+      font-size: 16px;
+      color: #888;
+    }
+
+    /* Hidden file input */
+    #file-input {
+      display: none;
+    }
+
+    /* Process button */
+    #process-btn {
+      width: 100%;
+      max-width: 400px;
+      padding: 16px;
+      margin-top: 20px;
+      font-size: 18px;
+      font-weight: 600;
+      background: #6c63ff;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+      display: none;
+    }
+
+    #process-btn:hover {
+      background: #5a52d5;
+    }
+
+    #process-btn:disabled {
+      background: #4a4a6a;
+      cursor: not-allowed;
+    }
+
+    #process-btn.visible {
+      display: block;
+    }
+
+    /* Preview area (after processing) */
+    #preview-area {
+      display: none;
+      width: 100%;
+      max-width: 400px;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    #preview-area.visible {
+      display: flex;
+    }
+
+    /* Checkered background for transparency */
+    #sticker-preview {
+      width: 100%;
+      aspect-ratio: 1;
+      border-radius: 16px;
+      background-image:
+        linear-gradient(45deg, #ccc 25%, transparent 25%),
+        linear-gradient(-45deg, #ccc 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #ccc 75%),
+        linear-gradient(-45deg, transparent 75%, #ccc 75%);
+      background-size: 20px 20px;
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+      background-color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    #sticker-preview img {
+      max-width: 90%;
+      max-height: 90%;
+      object-fit: contain;
+      transition: transform 0.3s ease;
+    }
+
+    /* Rotation controls */
+    #rotation-controls {
+      display: flex;
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .rotate-btn {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: #2d2d44;
+      border: 2px solid #6c63ff;
+      color: #6c63ff;
+      font-size: 24px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+
+    .rotate-btn:hover {
+      background: #3d3d54;
+    }
+
+    .rotate-btn:active {
+      background: #6c63ff;
+      color: white;
+    }
+
+    /* Submit button */
+    #submit-btn {
+      width: 100%;
+      max-width: 400px;
+      padding: 16px;
+      margin-top: 20px;
+      font-size: 18px;
+      font-weight: 600;
+      background: #27ae60;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #submit-btn:hover {
+      background: #219a52;
+    }
+
+    /* Retake button */
+    #retake-btn {
+      margin-top: 12px;
+      padding: 12px 24px;
+      font-size: 14px;
+      background: transparent;
+      color: #888;
+      border: 2px solid #4a4a6a;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    #retake-btn:hover {
+      border-color: #6c63ff;
+      color: #6c63ff;
+    }
+
+    /* Status messages */
+    #status {
+      margin-top: 20px;
+      padding: 16px 24px;
+      border-radius: 12px;
+      text-align: center;
+      font-size: 16px;
+      display: none;
+      width: 100%;
+      max-width: 400px;
+    }
+
+    #status.visible {
+      display: block;
+    }
+
+    #status.processing {
+      background: #2d2d44;
+      color: #ffd93d;
+    }
+
+    #status.success {
+      background: #1e5631;
+      color: #4ade80;
+    }
+
+    #status.error {
+      background: #5c1e1e;
+      color: #f87171;
+    }
+
+    /* Spinner */
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255, 217, 61, 0.3);
+      border-top-color: #ffd93d;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 10px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Original preview (before processing) */
+    #original-preview {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: 12px;
+      display: none;
+    }
+
+    #original-preview.visible {
+      display: block;
+    }
+
+    #capture-area.has-image {
+      border-style: solid;
+      border-color: #6c63ff;
+      padding: 10px;
+    }
+
+    #capture-area.has-image svg,
+    #capture-area.has-image p {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Add a Dancing Sticker</h1>
+
+  <!-- Step 1: Capture -->
+  <div id="capture-area">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z"/>
+      <path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/>
+    </svg>
+    <p>Tap to take a photo</p>
+    <img id="original-preview" alt="Preview">
+  </div>
+
+  <input type="file" id="file-input" accept="image/*" capture="environment">
+
+  <button id="process-btn">Remove Background</button>
+
+  <div id="status"></div>
+
+  <!-- Step 2: Preview & Rotate -->
+  <div id="preview-area">
+    <div id="sticker-preview">
+      <img id="sticker-img" alt="Sticker">
+    </div>
+
+    <div id="rotation-controls">
+      <button class="rotate-btn" id="rotate-left">↺</button>
+      <button class="rotate-btn" id="rotate-right">↻</button>
+    </div>
+
+    <button id="submit-btn">Add to Stage</button>
+    <button id="retake-btn">Take Another Photo</button>
+  </div>
+
+  <script>
+    // Elements
+    const captureArea = document.getElementById('capture-area');
+    const fileInput = document.getElementById('file-input');
+    const originalPreview = document.getElementById('original-preview');
+    const processBtn = document.getElementById('process-btn');
+    const status = document.getElementById('status');
+    const previewArea = document.getElementById('preview-area');
+    const stickerImg = document.getElementById('sticker-img');
+    const rotateLeftBtn = document.getElementById('rotate-left');
+    const rotateRightBtn = document.getElementById('rotate-right');
+    const submitBtn = document.getElementById('submit-btn');
+    const retakeBtn = document.getElementById('retake-btn');
+
+    // State
+    let selectedFile = null;
+    let processedImage = null;
+    let rotation = 0;
+
+    // Tap to open camera/file picker
+    captureArea.addEventListener('click', () => {
+      if (!captureArea.classList.contains('has-image')) {
+        fileInput.click();
+      }
+    });
+
+    // Handle file selection
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        selectedFile = file;
+        processedImage = null;
+        rotation = 0;
+
+        // Show original preview
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          originalPreview.src = e.target.result;
+          originalPreview.classList.add('visible');
+          captureArea.classList.add('has-image');
+        };
+        reader.readAsDataURL(file);
+
+        processBtn.classList.add('visible');
+        previewArea.classList.remove('visible');
+        status.classList.remove('visible');
+      }
+    });
+
+    // Process (remove background)
+    processBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      processBtn.disabled = true;
+      status.className = 'processing visible';
+      status.innerHTML = '<span class="spinner"></span>Removing background...';
+
+      const formData = new FormData();
+      formData.append('photo', selectedFile);
+
+      try {
+        const response = await fetch('/process', {
+          method: 'POST',
+          body: formData
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+          processedImage = result.image;
+          rotation = 0;
+
+          // Show sticker preview
+          stickerImg.src = processedImage;
+          stickerImg.style.transform = 'rotate(0deg)';
+
+          // Hide capture, show preview
+          captureArea.style.display = 'none';
+          processBtn.classList.remove('visible');
+          status.classList.remove('visible');
+          previewArea.classList.add('visible');
+        } else {
+          throw new Error(result.error || 'Processing failed');
+        }
+      } catch (error) {
+        status.className = 'error visible';
+        status.textContent = 'Error: ' + error.message;
+        processBtn.disabled = false;
+      }
+    });
+
+    // Rotate left
+    rotateLeftBtn.addEventListener('click', () => {
+      rotation = (rotation - 90) % 360;
+      stickerImg.style.transform = `rotate(${rotation}deg)`;
+    });
+
+    // Rotate right
+    rotateRightBtn.addEventListener('click', () => {
+      rotation = (rotation + 90) % 360;
+      stickerImg.style.transform = `rotate(${rotation}deg)`;
+    });
+
+    // Submit to stage
+    submitBtn.addEventListener('click', async () => {
+      if (!processedImage) return;
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Adding...';
+
+      try {
+        const response = await fetch('/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: processedImage,
+            rotation: rotation
+          })
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+          status.className = 'success visible';
+          status.textContent = 'Sticker added to stage!';
+          previewArea.classList.remove('visible');
+
+          // Auto reset after 2 seconds
+          setTimeout(resetForm, 2000);
+        } else {
+          throw new Error(result.error || 'Submit failed');
+        }
+      } catch (error) {
+        status.className = 'error visible';
+        status.textContent = 'Error: ' + error.message;
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Add to Stage';
+      }
+    });
+
+    // Retake photo
+    retakeBtn.addEventListener('click', resetForm);
+
+    function resetForm() {
+      selectedFile = null;
+      processedImage = null;
+      rotation = 0;
+      fileInput.value = '';
+      originalPreview.src = '';
+      originalPreview.classList.remove('visible');
+      captureArea.classList.remove('has-image');
+      captureArea.style.display = 'flex';
+      processBtn.classList.remove('visible');
+      processBtn.disabled = false;
+      previewArea.classList.remove('visible');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Add to Stage';
+      status.classList.remove('visible');
+    }
+  </script>
+</body>
+</html>

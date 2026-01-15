@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Dancing Sticker Stage</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #080808;
+    }
+
+    /* QR Code Overlay */
+    #qr-overlay {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 40px;
+      border-radius: 20px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    #qr-overlay.hidden {
+      display: none;
+    }
+
+    #qr-overlay img {
+      width: 250px;
+      height: 250px;
+    }
+
+    #qr-overlay p {
+      margin-top: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 18px;
+      color: #333;
+    }
+
+    #qr-overlay .url {
+      font-size: 14px;
+      color: #666;
+      margin-top: 10px;
+      font-family: monospace;
+    }
+
+    /* Stage Container */
+    #stage {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* Sticker */
+    .sticker {
+      position: absolute;
+      width: 350px;
+      height: 350px;
+      pointer-events: none;
+      user-select: none;
+      /* Position set via JS */
+    }
+
+    .sticker img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      transition: transform 0.2s ease-out;
+      will-change: transform;
+      transform: translateZ(0);
+      backface-visibility: visible;
+    }
+
+    .sticker img.spinning {
+      transition: transform 0.4s ease-in-out;
+    }
+
+    /* Toggle QR button */
+    #toggle-qr {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 999;
+      padding: 12px 20px;
+      font-size: 14px;
+      background: rgba(255, 255, 255, 0.9);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    #toggle-qr:hover {
+      background: white;
+    }
+
+    /* Status indicator */
+    #status {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      padding: 8px 16px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      border-radius: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 12px;
+    }
+
+    #status.connected {
+      background: rgba(39, 174, 96, 0.9);
+    }
+
+    #status.disconnected {
+      background: rgba(231, 76, 60, 0.9);
+    }
+  </style>
+</head>
+<body>
+  <!-- QR Code Overlay -->
+  <div id="qr-overlay">
+    <img src="data:image/png;base64,{{ qr_base64 }}" alt="QR Code">
+    <p>Scan to add stickers</p>
+    <p class="url">{{ camera_url }}</p>
+  </div>
+
+  <!-- Stage for dancing stickers -->
+  <div id="stage"></div>
+
+  <!-- Toggle QR button -->
+  <button id="toggle-qr">Show QR Code</button>
+
+  <!-- Connection status -->
+  <div id="status" class="disconnected">Connecting...</div>
+
+  <script>
+    // DOM elements
+    const stage = document.getElementById('stage');
+    const qrOverlay = document.getElementById('qr-overlay');
+    const toggleBtn = document.getElementById('toggle-qr');
+    const statusEl = document.getElementById('status');
+
+    // Sticker state: Map of id -> { div, img, physics }
+    const stickers = new Map();
+    const STICKER_SIZE = 150; // pixels (matches CSS)
+    const BOUNCE_DAMPING = 0.8; // Energy retained after collision
+
+    function randomRange(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    // Physics state per sticker
+    function createPhysicsState(x, y) {
+      return {
+        // Position (pixels from top-left)
+        x: x,
+        y: y,
+        // Velocity (pixels per second)
+        vx: randomRange(-100, 100),
+        vy: randomRange(-100, 100),
+        // Dance animation state (like old system)
+        currentYRotation: 0,
+        lastMoveTime: performance.now(),
+        nextMoveDelay: randomRange(80, 250),
+        isSpinning: false,
+        spinStartTime: 0,
+        spinDuration: 400,
+        // Current dance transform values
+        danceRotation: 0,
+        danceTranslateX: 0,
+        danceTranslateY: 0,
+        danceScale: 1,
+        danceSkewX: 0
+      };
+    }
+
+    // Check collision between two circles
+    function checkCollision(s1, s2) {
+      const dx = s2.x - s1.x;
+      const dy = s2.y - s1.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const minDist = STICKER_SIZE * 0.8; // Slightly smaller collision radius
+      return distance < minDist ? { dx, dy, distance } : null;
+    }
+
+    // Resolve collision between two stickers
+    function resolveCollision(state1, state2, collision) {
+      const { dx, dy, distance } = collision;
+
+      // Normalize collision vector
+      const nx = dx / distance;
+      const ny = dy / distance;
+
+      // Separate stickers
+      const overlap = (STICKER_SIZE * 0.8 - distance) / 2;
+      state1.x -= nx * overlap;
+      state1.y -= ny * overlap;
+      state2.x += nx * overlap;
+      state2.y += ny * overlap;
+
+      // Calculate relative velocity
+      const dvx = state2.vx - state1.vx;
+      const dvy = state2.vy - state1.vy;
+      const dotProduct = dvx * nx + dvy * ny;
+
+      // Don't resolve if velocities are separating
+      if (dotProduct > 0) return;
+
+      // Apply collision impulse (elastic collision)
+      const impulse = dotProduct * BOUNCE_DAMPING;
+      state1.vx += nx * impulse;
+      state1.vy += ny * impulse;
+      state2.vx -= nx * impulse;
+      state2.vy -= ny * impulse;
+    }
+
+    // Apply dance move to a sticker (like old system)
+    function applyDanceMove(physics) {
+      physics.danceRotation = randomRange(-30, 30);
+      physics.danceTranslateX = randomRange(-20, 20);
+      physics.danceTranslateY = randomRange(-15, 15);
+      physics.danceScale = randomRange(0.85, 1.15);
+      physics.danceSkewX = randomRange(-8, 8);
+    }
+
+    // Start spin animation
+    function startSpin(physics) {
+      physics.currentYRotation += 180;
+      physics.isSpinning = true;
+      physics.spinStartTime = performance.now();
+      physics.spinDuration = 400;
+    }
+
+    // Update physics for all stickers
+    function updatePhysics(deltaTime, timestamp) {
+      const stageWidth = window.innerWidth;
+      const stageHeight = window.innerHeight;
+      const dt = deltaTime / 1000; // Convert to seconds
+
+      // Update positions and dance animations
+      for (const [id, sticker] of stickers) {
+        const physics = sticker.physics;
+
+        // Apply velocity (position movement)
+        physics.x += physics.vx * dt;
+        physics.y += physics.vy * dt;
+
+        // Screen edge collision
+        const radius = STICKER_SIZE / 2;
+        if (physics.x - radius < 0) {
+          physics.x = radius;
+          physics.vx = Math.abs(physics.vx) * BOUNCE_DAMPING;
+        } else if (physics.x + radius > stageWidth) {
+          physics.x = stageWidth - radius;
+          physics.vx = -Math.abs(physics.vx) * BOUNCE_DAMPING;
+        }
+
+        if (physics.y - radius < 0) {
+          physics.y = radius;
+          physics.vy = Math.abs(physics.vy) * BOUNCE_DAMPING;
+        } else if (physics.y + radius > stageHeight) {
+          physics.y = stageHeight - radius;
+          physics.vy = -Math.abs(physics.vy) * BOUNCE_DAMPING;
+        }
+
+        // Dance animation (like old system)
+        if (physics.isSpinning) {
+          if (timestamp - physics.spinStartTime >= physics.spinDuration) {
+            physics.isSpinning = false;
+            physics.lastMoveTime = timestamp;
+            physics.nextMoveDelay = randomRange(80, 250);
+          }
+        } else {
+          if (timestamp - physics.lastMoveTime >= physics.nextMoveDelay) {
+            if (Math.random() < 0.08) {
+              startSpin(physics);
+            } else {
+              applyDanceMove(physics);
+              physics.lastMoveTime = timestamp;
+              physics.nextMoveDelay = randomRange(80, 250);
+            }
+          }
+        }
+      }
+
+      // Sticker-to-sticker collision detection
+      const stickerArray = Array.from(stickers.values());
+      for (let i = 0; i < stickerArray.length; i++) {
+        for (let j = i + 1; j < stickerArray.length; j++) {
+          const collision = checkCollision(
+            stickerArray[i].physics,
+            stickerArray[j].physics
+          );
+          if (collision) {
+            resolveCollision(
+              stickerArray[i].physics,
+              stickerArray[j].physics,
+              collision
+            );
+          }
+        }
+      }
+    }
+
+    // Render stickers
+    function render() {
+      for (const [id, sticker] of stickers) {
+        const { div, img, physics } = sticker;
+
+        // Update position (centered on physics.x, physics.y)
+        div.style.left = (physics.x - STICKER_SIZE / 2) + 'px';
+        div.style.top = (physics.y - STICKER_SIZE / 2) + 'px';
+
+        // Update image transform with dance animation (like old system)
+        if (physics.isSpinning) {
+          img.classList.add('spinning');
+          img.style.transform = `rotateY(${physics.currentYRotation}deg)`;
+        } else {
+          img.classList.remove('spinning');
+          img.style.transform = `
+            rotateY(${physics.currentYRotation}deg)
+            rotate(${physics.danceRotation}deg)
+            translate(${physics.danceTranslateX}px, ${physics.danceTranslateY}px)
+            scale(${physics.danceScale})
+            skewX(${physics.danceSkewX}deg)
+          `;
+        }
+      }
+    }
+
+    // Main animation loop
+    let lastTimestamp = 0;
+    let frameCount = 0;
+    function animationLoop(timestamp) {
+      const deltaTime = timestamp - lastTimestamp || 16;
+      lastTimestamp = timestamp;
+
+      updatePhysics(deltaTime, timestamp);
+      render();
+
+      // Debug: log every 60 frames (once per second)
+      frameCount++;
+      if (frameCount % 60 === 0) {
+        console.log(`Animation running. Stickers: ${stickers.size}`);
+        if (stickers.size > 0) {
+          const firstSticker = Array.from(stickers.values())[0];
+          console.log(`First sticker pos: (${Math.round(firstSticker.physics.x)}, ${Math.round(firstSticker.physics.y)}), vel: (${Math.round(firstSticker.physics.vx)}, ${Math.round(firstSticker.physics.vy)})`);
+        }
+      }
+
+      requestAnimationFrame(animationLoop);
+    }
+
+    // Add sticker to stage
+    function addSticker(stickerData) {
+      const div = document.createElement('div');
+      div.className = 'sticker';
+      div.dataset.id = stickerData.id;
+
+      const img = document.createElement('img');
+      img.src = stickerData.image;
+      img.alt = 'Sticker';
+      div.appendChild(img);
+
+      stage.appendChild(div);
+
+      // Convert percentage to pixels
+      const x = (stickerData.x / 100) * window.innerWidth;
+      const y = (stickerData.y / 100) * window.innerHeight;
+
+      const physics = createPhysicsState(x, y);
+      stickers.set(stickerData.id, { div, img, physics });
+
+      console.log(`Added sticker at (${Math.round(x)}, ${Math.round(y)}) with velocity (${Math.round(physics.vx)}, ${Math.round(physics.vy)})`);
+
+      // Hide QR when first sticker arrives
+      if (stickers.size === 1) {
+        qrOverlay.classList.add('hidden');
+        toggleBtn.textContent = 'Show QR Code';
+      }
+    }
+
+    // Remove sticker from stage
+    function removeSticker(id) {
+      const sticker = stickers.get(id);
+      if (sticker) {
+        sticker.div.remove();
+        stickers.delete(id);
+      }
+
+      // Show QR if no stickers left
+      if (stickers.size === 0) {
+        qrOverlay.classList.remove('hidden');
+        toggleBtn.textContent = 'Hide QR Code';
+      }
+    }
+
+    // SSE Connection
+    let eventSource = null;
+    let reconnectTimeout = null;
+
+    function connect() {
+      eventSource = new EventSource('/stream');
+
+      eventSource.onopen = () => {
+        statusEl.textContent = 'Connected';
+        statusEl.className = 'connected';
+      };
+
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        switch (data.type) {
+          case 'init':
+            // Clear existing and load initial stickers
+            stickers.forEach((_, id) => removeSticker(id));
+            data.stickers.forEach(s => addSticker(s));
+            break;
+
+          case 'add':
+            addSticker(data.sticker);
+            break;
+
+          case 'remove':
+            removeSticker(data.id);
+            break;
+        }
+      };
+
+      eventSource.onerror = () => {
+        statusEl.textContent = 'Disconnected';
+        statusEl.className = 'disconnected';
+        eventSource.close();
+
+        // Reconnect after 3 seconds
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = setTimeout(connect, 3000);
+      };
+    }
+
+    // Toggle QR overlay
+    toggleBtn.addEventListener('click', () => {
+      qrOverlay.classList.toggle('hidden');
+      toggleBtn.textContent = qrOverlay.classList.contains('hidden')
+        ? 'Show QR Code'
+        : 'Hide QR Code';
+    });
+
+    // Start
+    connect();
+    requestAnimationFrame(animationLoop);
+  </script>
+</body>
+</html>
