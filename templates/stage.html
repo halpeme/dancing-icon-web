@@ -129,6 +129,99 @@
     #status.disconnected {
       background: rgba(231, 76, 60, 0.9);
     }
+
+    /* Showstopper Effect Styles */
+
+    /* Flash overlay */
+    #flash-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      background: white;
+      opacity: 0;
+      z-index: 9999;
+    }
+
+    #flash-overlay.active {
+      animation: flash 600ms ease-out;
+    }
+
+    @keyframes flash {
+      0% { opacity: 0; }
+      10% { opacity: 0.9; }
+      100% { opacity: 0; }
+    }
+
+    /* Spotlight overlay */
+    #spotlight {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      background: radial-gradient(
+        circle 400px at 50% 50%,
+        transparent 0%,
+        rgba(0, 0, 0, 0.85) 100%
+      );
+      opacity: 0;
+      transition: opacity 300ms, background 100ms;
+      z-index: 500;
+    }
+
+    #spotlight.active {
+      opacity: 1;
+    }
+
+    /* Ripple canvas */
+    #ripple-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 600;
+    }
+
+    /* Screen shake effect */
+    #stage.shaking {
+      animation: shake 400ms cubic-bezier(.36,.07,.19,.97) both;
+    }
+
+    @keyframes shake {
+      10%, 90% { transform: translate3d(-4px, 0, 0); }
+      20%, 80% { transform: translate3d(8px, 0, 0); }
+      30%, 50%, 70% { transform: translate3d(-8px, 0, 0); }
+      40%, 60% { transform: translate3d(8px, 0, 0); }
+    }
+
+    /* Background pulse effect */
+    body.pulse-bg {
+      animation: backgroundPulse 800ms ease-out;
+    }
+
+    @keyframes backgroundPulse {
+      0% { background: #080808; }
+      20% { background: #1a0a2e; }
+      100% { background: #080808; }
+    }
+
+    /* Dimmed stickers effect */
+    .sticker.dimmed img {
+      transition: filter 300ms, opacity 300ms;
+      filter: grayscale(0.7) blur(2px);
+      opacity: 0.3;
+    }
+
+    .sticker.dimmed.undim img {
+      filter: grayscale(0) blur(0);
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
@@ -148,9 +241,54 @@
   <!-- Connection status -->
   <div id="status" class="disconnected">Connecting...</div>
 
+  <!-- Showstopper Effect Overlays -->
+  <div id="flash-overlay"></div>
+  <div id="spotlight"></div>
+  <canvas id="ripple-canvas"></canvas>
+
   <script>
-    // VERSION 4 - Slower, bigger bounce
-    console.log('%c STAGE VERSION 4 - Slow Big Bounce ', 'background: #0ff; color: #000; font-size: 20px;');
+    // VERSION 8 - PERFORMANCE CLEANUP (removed debug logging)
+
+    // SHOWSTOPPER CONFIGURATION
+    const CONFIG = {
+      // Sticker entrance style
+      entranceStyle: 'superhero',  // 'pop' (original) or 'superhero' (new)
+      entranceDuration: 2000,      // milliseconds
+
+      // Audio system
+      enableAudio: true,
+      audioVolume: 0.6,
+      maxConcurrentSounds: 3,
+
+      // Stage-wide effects
+      enableFlash: true,
+      flashColor: 'white',         // or any CSS color
+
+      enableShake: true,
+      shakeIntensity: 1.0,
+
+      enableRipple: true,
+
+      enableDimOthers: false,      // Performance: off by default
+      dimDuration: 1800,           // milliseconds
+
+      enableSpotlight: false,      // Performance: off by default
+      spotlightDuration: 2000,     // milliseconds
+
+      enableBackgroundPulse: false,  // Off by default
+
+      enableParticles: false,      // Performance: off by default (not yet implemented)
+    };
+
+    // Sparkle colors for the shower effect
+    const sparkleColors = [
+      '#FFD700', // Gold
+      '#FFFFFF', // White
+      '#00FFFF', // Cyan
+      '#FF1493', // Deep pink
+      '#FF69B4', // Hot pink
+      '#87CEEB'  // Sky blue
+    ];
 
     // DOM elements
     const stage = document.getElementById('stage');
@@ -161,32 +299,20 @@
     // Sticker state: Map of id -> { div, img, physics }
     const stickers = new Map();
     const STICKER_SIZE = 350; // pixels (matches CSS)
-    const BOUNCE_DAMPING = 0.8; // Energy retained after collision
 
     function randomRange(min, max) {
       return Math.random() * (max - min) + min;
     }
 
-    // Bounce entrance effect
-    // Returns 0 at t=0, grows to peak at t=0.6, settles to 1.0 at t=1
-    function elasticEaseOut(t) {
+    // Smooth entrance effect with nice overshoot
+    // Ease-out-back curve: overshoots smoothly then settles
+    function easeOutBack(t) {
       if (t <= 0) return 0;
       if (t >= 1) return 1;
 
-      const peakScale = 1.8;  // Maximum overshoot (80% bigger than normal)
-      const peakTime = 0.6;   // When to hit peak (60% through animation)
-
-      if (t < peakTime) {
-        // Grow from 0 to peakScale with ease-out curve
-        const progress = t / peakTime;
-        const eased = 1 - Math.pow(1 - progress, 3);  // Cubic ease-out
-        return eased * peakScale;
-      } else {
-        // Settle from peakScale to 1.0 with ease-in-out
-        const progress = (t - peakTime) / (1 - peakTime);
-        const eased = progress * progress * (3 - 2 * progress);  // Smoothstep
-        return peakScale - (peakScale - 1) * eased;
-      }
+      const c1 = 2.5;  // Back constant (controls overshoot amount) - increased for more dramatic effect
+      const c3 = c1 + 1;
+      return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
     }
 
     // Physics state per sticker
@@ -214,17 +340,267 @@
         // Entrance animation state
         isEntering: true,
         entranceStartTime: null,  // Set on first frame
-        entranceDuration: randomRange(2500, 3000),  // Slow and dramatic
-        entranceProgress: 0  // 0 to 1
+        entranceDuration: CONFIG.entranceDuration,
+        entranceProgress: 0,  // 0 to 1
+        // Superhero entrance properties
+        entranceStyle: CONFIG.entranceStyle,
+        entranceStartY: -500,  // Start above screen for superhero
+        impactScale: 1.5       // Scale spike on landing
       };
     }
 
+    // ========== AUDIO SYSTEM ==========
+    const audioSystem = {
+      pools: {},
+      maxConcurrent: CONFIG.maxConcurrentSounds,
+      activeCount: 0,
+
+      init() {
+        const soundFiles = [
+          'entrance-1.mp3',
+          'entrance-2.mp3',
+          'entrance-3.mp3',
+          'entrance-4.mp3',
+          'entrance-5.mp3'
+        ];
+
+        soundFiles.forEach(file => {
+          this.pools[file] = [];
+          // Create pool of 3 Audio objects per sound
+          for (let i = 0; i < 3; i++) {
+            const audio = new Audio(`/static/sounds/${file}`);
+            audio.volume = CONFIG.audioVolume;
+            audio.addEventListener('ended', () => {
+              this.activeCount--;
+            });
+            this.pools[file].push(audio);
+          }
+        });
+      },
+
+      play(soundName = null) {
+        if (!CONFIG.enableAudio) return;
+
+        // Throttle if too many sounds playing
+        if (this.activeCount >= this.maxConcurrent) return;
+
+        // Random sound if not specified
+        if (!soundName) {
+          const soundFiles = Object.keys(this.pools);
+          soundName = soundFiles[Math.floor(Math.random() * soundFiles.length)];
+        }
+
+        const pool = this.pools[soundName];
+        if (!pool) {
+          console.warn(`Sound ${soundName} not found in pools`);
+          return;
+        }
+
+        // Find available audio element
+        const audio = pool.find(a => a.paused || a.ended);
+        if (audio) {
+          audio.currentTime = 0;
+          audio.play().catch(() => {}); // Silently ignore autoplay errors
+          this.activeCount++;
+        }
+      },
+
+      setVolume(volume) {
+        Object.values(this.pools).forEach(pool => {
+          pool.forEach(audio => audio.volume = volume);
+        });
+      }
+    };
+
+    // ========== RIPPLE SYSTEM ==========
+    const rippleCanvas = document.getElementById('ripple-canvas');
+    const rippleCtx = rippleCanvas.getContext('2d');
+    let ripples = [];
+
+    // Resize canvas once on init and on window resize (not every frame)
+    function resizeRippleCanvas() {
+      rippleCanvas.width = window.innerWidth;
+      rippleCanvas.height = window.innerHeight;
+    }
+    resizeRippleCanvas();
+    window.addEventListener('resize', resizeRippleCanvas);
+
+    function createRipple(x, y) {
+      if (!CONFIG.enableRipple) return;
+
+      const numSparkles = 60;
+      for (let i = 0; i < numSparkles; i++) {
+        // Fountain pattern: upward arc (-144° to -36°)
+        const angle = randomRange(-Math.PI * 0.8, -Math.PI * 0.2);
+        const speed = randomRange(150, 350);
+
+        ripples.push({
+          x, y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          size: randomRange(4, 12),
+          rotation: randomRange(0, 360),
+          rotationSpeed: randomRange(180, 540),
+          color: sparkleColors[Math.floor(Math.random() * sparkleColors.length)],
+          alpha: 1,
+          twinklePhase: randomRange(0, Math.PI * 2),
+          twinkleSpeed: randomRange(4, 6),
+          startTime: performance.now(),
+          duration: 1400,
+          gravity: 100,
+          points: Math.random() > 0.5 ? 4 : 6
+        });
+      }
+    }
+
+    function updateRipples(deltaTime) {
+      if (!CONFIG.enableRipple || ripples.length === 0) return;
+
+      const dt = deltaTime / 1000;
+      const now = performance.now();
+
+      ripples = ripples.filter(sparkle => {
+        const elapsed = now - sparkle.startTime;
+        const progress = Math.min(elapsed / sparkle.duration, 1);
+
+        // Physics: velocity and gravity
+        sparkle.x += sparkle.vx * dt;
+        sparkle.y += sparkle.vy * dt;
+        sparkle.vy += sparkle.gravity * dt;
+        sparkle.rotation += sparkle.rotationSpeed * dt;
+
+        // Twinkle effect (brightness oscillation)
+        sparkle.twinklePhase += sparkle.twinkleSpeed * dt * Math.PI * 2;
+        const twinkleFactor = (Math.sin(sparkle.twinklePhase) + 1) / 2;
+
+        // Fade with twinkle
+        const baseFade = Math.pow(1 - progress, 1.8);
+        sparkle.alpha = baseFade * (0.4 + twinkleFactor * 0.6);
+
+        // Shrink over time
+        sparkle.currentSize = sparkle.size * (1 - progress * 0.5);
+
+        return progress < 1;
+      });
+    }
+
+    function renderRipples() {
+      if (!CONFIG.enableRipple || ripples.length === 0) return;
+
+      // Clear canvas (don't resize - that's handled by resize handler)
+      rippleCtx.clearRect(0, 0, rippleCanvas.width, rippleCanvas.height);
+
+      ripples.forEach(sparkle => {
+        rippleCtx.save();
+        rippleCtx.translate(sparkle.x, sparkle.y);
+        rippleCtx.rotate(sparkle.rotation * Math.PI / 180);
+        rippleCtx.globalAlpha = sparkle.alpha;
+        rippleCtx.fillStyle = sparkle.color;
+
+        // Draw star shape (4-point or 6-point)
+        const numPoints = sparkle.points;
+        const outerRadius = sparkle.currentSize;
+        const innerRadius = outerRadius * 0.4;
+
+        rippleCtx.beginPath();
+        for (let i = 0; i < numPoints * 2; i++) {
+          const angle = (Math.PI * i) / numPoints - Math.PI / 2;
+          const radius = i % 2 === 0 ? outerRadius : innerRadius;
+          const px = Math.cos(angle) * radius;
+          const py = Math.sin(angle) * radius;
+          if (i === 0) rippleCtx.moveTo(px, py);
+          else rippleCtx.lineTo(px, py);
+        }
+        rippleCtx.closePath();
+        rippleCtx.fill();
+
+        rippleCtx.restore();
+      });
+    }
+
+    // ========== STAGE EFFECT FUNCTIONS ==========
+
+    function triggerFlash(color = 'white') {
+      if (!CONFIG.enableFlash) return;
+
+      const flash = document.getElementById('flash-overlay');
+      flash.style.background = color;
+      flash.classList.add('active');
+      setTimeout(() => flash.classList.remove('active'), 600);
+    }
+
+    function triggerShake(intensity = 1.0) {
+      if (!CONFIG.enableShake) return;
+
+      stage.classList.add('shaking');
+      setTimeout(() => stage.classList.remove('shaking'), 400);
+    }
+
+    function triggerSpotlight(x, y, duration = 2000) {
+      if (!CONFIG.enableSpotlight) return;
+
+      const spotlight = document.getElementById('spotlight');
+      const xPercent = (x / window.innerWidth) * 100;
+      const yPercent = (y / window.innerHeight) * 100;
+
+      spotlight.style.background = `radial-gradient(
+        circle 500px at ${xPercent}% ${yPercent}%,
+        transparent 0%,
+        rgba(0, 0, 0, 0.85) 100%
+      )`;
+      spotlight.classList.add('active');
+
+      setTimeout(() => spotlight.classList.remove('active'), duration);
+    }
+
+    function dimExistingStickers(duration = 1800) {
+      if (!CONFIG.enableDimOthers) return;
+
+      stickers.forEach((sticker, id) => {
+        if (!sticker.physics.isEntering) {
+          sticker.div.classList.add('dimmed');
+        }
+      });
+
+      setTimeout(() => {
+        stickers.forEach(sticker => {
+          sticker.div.classList.add('undim');
+          setTimeout(() => {
+            sticker.div.classList.remove('dimmed', 'undim');
+          }, 300);
+        });
+      }, duration);
+    }
+
+    function triggerBackgroundPulse() {
+      if (!CONFIG.enableBackgroundPulse) return;
+
+      document.body.classList.add('pulse-bg');
+      setTimeout(() => document.body.classList.remove('pulse-bg'), 800);
+    }
+
+    // ========== SUPERHERO ENTRANCE EASING ==========
+
+    // Ease function for superhero landing (drop, impact, bounce)
+    function easeInOutBounce(t) {
+      if (t < 0.6) {
+        // Accelerate down (0-60%)
+        const dropProgress = t / 0.6;
+        return dropProgress * dropProgress * dropProgress;
+      } else {
+        // Bounce settle with decreasing bounces (60-100%)
+        const bounceProgress = (t - 0.6) / 0.4;
+        return 1 - Math.abs(Math.sin(bounceProgress * Math.PI * 3)) * Math.pow(1 - bounceProgress, 2);
+      }
+    }
+
     // Check collision between two circles
+    const COLLISION_RADIUS_FACTOR = 0.5; // How close stickers get before bouncing (0.5 = very close, 0.8 = far apart)
     function checkCollision(s1, s2) {
       const dx = s2.x - s1.x;
       const dy = s2.y - s1.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
-      const minDist = STICKER_SIZE * 0.8; // Slightly smaller collision radius
+      const minDist = STICKER_SIZE * COLLISION_RADIUS_FACTOR;
       return distance < minDist ? { dx, dy, distance } : null;
     }
 
@@ -237,7 +613,7 @@
       const ny = dy / distance;
 
       // Separate stickers
-      const overlap = (STICKER_SIZE * 0.8 - distance) / 2;
+      const overlap = (STICKER_SIZE * COLLISION_RADIUS_FACTOR - distance) / 2;
       state1.x -= nx * overlap;
       state1.y -= ny * overlap;
       state2.x += nx * overlap;
@@ -252,7 +628,7 @@
       if (dotProduct > 0) return;
 
       // Apply collision impulse (elastic collision)
-      const impulse = dotProduct * BOUNCE_DAMPING;
+      const impulse = dotProduct;
       state1.vx += nx * impulse;
       state1.vy += ny * impulse;
       state2.vx -= nx * impulse;
@@ -308,18 +684,18 @@
         const radius = STICKER_SIZE / 2;
         if (physics.x - radius < 0) {
           physics.x = radius;
-          physics.vx = Math.abs(physics.vx) * BOUNCE_DAMPING;
+          physics.vx = Math.abs(physics.vx);
         } else if (physics.x + radius > stageWidth) {
           physics.x = stageWidth - radius;
-          physics.vx = -Math.abs(physics.vx) * BOUNCE_DAMPING;
+          physics.vx = -Math.abs(physics.vx);
         }
 
         if (physics.y - radius < 0) {
           physics.y = radius;
-          physics.vy = Math.abs(physics.vy) * BOUNCE_DAMPING;
+          physics.vy = Math.abs(physics.vy);
         } else if (physics.y + radius > stageHeight) {
           physics.y = stageHeight - radius;
-          physics.vy = -Math.abs(physics.vy) * BOUNCE_DAMPING;
+          physics.vy = -Math.abs(physics.vy);
         }
 
         // Dance animation (like old system)
@@ -370,32 +746,51 @@
         div.style.left = (physics.x - STICKER_SIZE / 2) + 'px';
         div.style.top = (physics.y - STICKER_SIZE / 2) + 'px';
 
-        // Calculate entrance scale
-        let entranceScale = 1;
+        // Update image transform
         if (physics.isEntering) {
-          entranceScale = elasticEaseOut(physics.entranceProgress);
-          img.classList.remove('dancing');  // No CSS transitions during entrance
-          // Debug: log every 10%
-          const pct = Math.floor(physics.entranceProgress * 10);
-          if (!physics._lastLoggedPct || physics._lastLoggedPct !== pct) {
-            physics._lastLoggedPct = pct;
-            console.log(`Entrance: ${pct * 10}% -> scale=${entranceScale.toFixed(2)}`);
-          }
-        } else if (!img.classList.contains('dancing')) {
-          img.classList.add('dancing');  // Enable CSS transitions after entrance
-        }
+          // During entrance: apply entrance animation based on style
+          img.classList.remove('spinning', 'dancing');
 
-        // Update image transform with dance animation (like old system)
-        if (physics.isSpinning) {
+          if (physics.entranceStyle === 'superhero') {
+            // Superhero landing: drop from top with rotation and impact
+            const progress = physics.entranceProgress;
+            let entranceScale = easeInOutBounce(progress);
+
+            // Add impact scale spike at 60-70% progress
+            if (progress >= 0.6 && progress <= 0.7) {
+              const impactProgress = (progress - 0.6) / 0.1;
+              const impactSpike = Math.sin(impactProgress * Math.PI) * (physics.impactScale - 1);
+              entranceScale *= (1 + impactSpike);
+            }
+
+            // Apply Y offset for drop effect (starts above screen)
+            const dropOffset = (1 - progress) * physics.entranceStartY;
+
+            // Rotation during drop
+            const rotationDegrees = progress * 360;
+
+            img.style.transform = `
+              translateY(${dropOffset}px)
+              scale(${entranceScale})
+              rotate(${rotationDegrees}deg)
+            `;
+          } else {
+            // Original 'pop' entrance: smooth scale with overshoot
+            const entranceScale = easeOutBack(physics.entranceProgress);
+            img.style.transform = `scale(${entranceScale})`;
+          }
+        } else if (physics.isSpinning) {
+          // After entrance: apply spin animation
           img.classList.add('spinning');
+          img.classList.remove('dancing');
           img.style.transform = `
-            scale(${entranceScale})
             rotateY(${physics.currentYRotation}deg)
           `;
         } else {
+          // After entrance: apply full dance animation
           img.classList.remove('spinning');
+          img.classList.add('dancing');
           img.style.transform = `
-            scale(${entranceScale})
             rotateY(${physics.currentYRotation}deg)
             rotate(${physics.danceRotation}deg)
             translate(${physics.danceTranslateX}px, ${physics.danceTranslateY}px)
@@ -408,23 +803,14 @@
 
     // Main animation loop
     let lastTimestamp = 0;
-    let frameCount = 0;
     function animationLoop(timestamp) {
       const deltaTime = timestamp - lastTimestamp || 16;
       lastTimestamp = timestamp;
 
       updatePhysics(deltaTime, timestamp);
+      updateRipples(deltaTime);
       render();
-
-      // Debug: log every 60 frames (once per second)
-      frameCount++;
-      if (frameCount % 60 === 0) {
-        console.log(`Animation running. Stickers: ${stickers.size}`);
-        if (stickers.size > 0) {
-          const firstSticker = Array.from(stickers.values())[0];
-          console.log(`First sticker pos: (${Math.round(firstSticker.physics.x)}, ${Math.round(firstSticker.physics.y)}), vel: (${Math.round(firstSticker.physics.vx)}, ${Math.round(firstSticker.physics.vy)})`);
-        }
-      }
+      renderRipples();
 
       requestAnimationFrame(animationLoop);
     }
@@ -449,7 +835,14 @@
       const physics = createPhysicsState(x, y);
       stickers.set(stickerData.id, { div, img, physics });
 
-      console.log(`Added sticker at (${Math.round(x)}, ${Math.round(y)}) with velocity (${Math.round(physics.vx)}, ${Math.round(physics.vy)}), entrance duration: ${physics.entranceDuration}ms`);
+      // ========== TRIGGER ALL SHOWSTOPPER EFFECTS ==========
+      audioSystem.play();  // Play random entrance sound
+      triggerFlash(CONFIG.flashColor);
+      triggerShake(CONFIG.shakeIntensity);
+      createRipple(x, y);
+      triggerSpotlight(x, y, CONFIG.spotlightDuration);
+      dimExistingStickers(CONFIG.dimDuration);
+      triggerBackgroundPulse();
 
       // Hide QR when first sticker arrives
       if (stickers.size === 1) {
@@ -525,6 +918,7 @@
     });
 
     // Start
+    audioSystem.init();
     connect();
     requestAnimationFrame(animationLoop);
   </script>

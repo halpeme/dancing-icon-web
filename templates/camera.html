@@ -60,9 +60,69 @@
       color: #888;
     }
 
-    /* Hidden file input */
-    #file-input {
+    /* Hidden file inputs */
+    #camera-input,
+    #file-upload {
       display: none;
+    }
+
+    /* Separator */
+    .separator {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      max-width: 400px;
+      margin: 20px 0;
+      color: #666;
+      font-size: 14px;
+    }
+
+    .separator::before,
+    .separator::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #4a4a6a;
+    }
+
+    .separator span {
+      padding: 0 16px;
+    }
+
+    /* Secondary button (upload) */
+    .secondary-btn {
+      width: 100%;
+      max-width: 400px;
+      padding: 14px 20px;
+      font-size: 16px;
+      font-weight: 500;
+      background: transparent;
+      color: #888;
+      border: 2px solid #4a4a6a;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .secondary-btn:hover {
+      border-color: #6c63ff;
+      color: #6c63ff;
+      background: rgba(108, 99, 255, 0.05);
+    }
+
+    .secondary-btn svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    /* Drag-over state */
+    #capture-area.drag-over {
+      border-color: #6c63ff;
+      background: rgba(108, 99, 255, 0.1);
     }
 
     /* Process button */
@@ -284,11 +344,23 @@
       <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z"/>
       <path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/>
     </svg>
-    <p>Tap to take a photo</p>
+    <p>Take a Photo</p>
     <img id="original-preview" alt="Preview">
   </div>
 
-  <input type="file" id="file-input" accept="image/*" capture="environment">
+  <div class="separator">
+    <span>OR</span>
+  </div>
+
+  <button id="upload-btn" class="secondary-btn">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+      <path fill="currentColor" d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/>
+    </svg>
+    Upload from Files
+  </button>
+
+  <input type="file" id="camera-input" accept="image/*" capture="environment">
+  <input type="file" id="file-upload" accept="image/*">
 
   <button id="process-btn">Remove Background</button>
 
@@ -312,7 +384,9 @@
   <script>
     // Elements
     const captureArea = document.getElementById('capture-area');
-    const fileInput = document.getElementById('file-input');
+    const cameraInput = document.getElementById('camera-input');
+    const fileUpload = document.getElementById('file-upload');
+    const uploadBtn = document.getElementById('upload-btn');
     const originalPreview = document.getElementById('original-preview');
     const processBtn = document.getElementById('process-btn');
     const status = document.getElementById('status');
@@ -328,33 +402,92 @@
     let processedImage = null;
     let rotation = 0;
 
-    // Tap to open camera/file picker
+    // Tap capture area to open camera
     captureArea.addEventListener('click', () => {
       if (!captureArea.classList.contains('has-image')) {
-        fileInput.click();
+        cameraInput.click();
       }
     });
 
-    // Handle file selection
-    fileInput.addEventListener('change', (e) => {
+    // Tap upload button to open file picker
+    uploadBtn.addEventListener('click', () => {
+      fileUpload.click();
+    });
+
+    // Handle file selection (from camera or file upload)
+    function handleFileSelection(e) {
       const file = e.target.files[0];
-      if (file) {
-        selectedFile = file;
-        processedImage = null;
-        rotation = 0;
+      if (!file) return;
 
-        // Show original preview
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          originalPreview.src = e.target.result;
-          originalPreview.classList.add('visible');
-          captureArea.classList.add('has-image');
-        };
-        reader.readAsDataURL(file);
+      // File size validation (max 10MB)
+      const maxSize = 10 * 1024 * 1024; // 10MB in bytes
+      if (file.size > maxSize) {
+        status.className = 'error visible';
+        status.textContent = 'File too large. Maximum size: 10MB';
+        cameraInput.value = '';
+        fileUpload.value = '';
+        return;
+      }
 
-        processBtn.classList.add('visible');
-        previewArea.classList.remove('visible');
-        status.classList.remove('visible');
+      // MIME type validation
+      const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+      if (!validTypes.includes(file.type.toLowerCase())) {
+        status.className = 'error visible';
+        status.textContent = 'Invalid file type. Please select an image (JPEG, PNG, WebP, or GIF).';
+        cameraInput.value = '';
+        fileUpload.value = '';
+        return;
+      }
+
+      selectedFile = file;
+      processedImage = null;
+      rotation = 0;
+
+      // Show original preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        originalPreview.src = e.target.result;
+        originalPreview.classList.add('visible');
+        captureArea.classList.add('has-image');
+      };
+      reader.readAsDataURL(file);
+
+      processBtn.classList.add('visible');
+      previewArea.classList.remove('visible');
+      status.classList.remove('visible');
+    }
+
+    // Attach handler to both inputs
+    cameraInput.addEventListener('change', handleFileSelection);
+    fileUpload.addEventListener('change', handleFileSelection);
+
+    // Drag-and-drop support for desktop
+    captureArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (!captureArea.classList.contains('has-image')) {
+        captureArea.classList.add('drag-over');
+      }
+    });
+
+    captureArea.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      captureArea.classList.remove('drag-over');
+    });
+
+    captureArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      captureArea.classList.remove('drag-over');
+
+      if (captureArea.classList.contains('has-image')) return;
+
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) {
+        // Trigger the same validation and preview logic
+        const fakeEvent = { target: { files: [file] } };
+        handleFileSelection(fakeEvent);
+      } else if (file) {
+        status.className = 'error visible';
+        status.textContent = 'Invalid file type. Please drop an image file.';
       }
     });
 
@@ -456,7 +589,8 @@
       selectedFile = null;
       processedImage = null;
       rotation = 0;
-      fileInput.value = '';
+      cameraInput.value = '';
+      fileUpload.value = '';
       originalPreview.src = '';
       originalPreview.classList.remove('visible');
       captureArea.classList.remove('has-image');
