@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, screen } = require('electron');
 const http = require('http');
 
 const FLASK_URL = 'http://127.0.0.1:5000/?mode=overlay';
@@ -51,22 +51,76 @@ function waitForFlask(maxAttempts = 30, delayMs = 500) {
 }
 
 /**
+ * Calculate combined bounds for all displays
+ * @returns {Object} { x, y, width, height, displayCount, displays }
+ */
+function getCombinedDisplayBounds() {
+  const displays = screen.getAllDisplays();
+
+  if (displays.length === 0) {
+    throw new Error('No displays detected');
+  }
+
+  // Calculate bounding box that encompasses all displays
+  let minX = Infinity, minY = Infinity;
+  let maxX = -Infinity, maxY = -Infinity;
+
+  displays.forEach(display => {
+    const { x, y, width, height } = display.bounds;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + width);
+    maxY = Math.max(maxY, y + height);
+  });
+
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+    displayCount: displays.length,
+    displays: displays
+  };
+}
+
+/**
  * Create transparent, fullscreen, click-through overlay window (stays on top)
  */
 function createWindow() {
+  const bounds = getCombinedDisplayBounds();
+
+  console.log(`Detected ${bounds.displayCount} display(s):`);
+  bounds.displays.forEach((d, i) => {
+    console.log(`  Display ${i}: ${d.bounds.width}x${d.bounds.height} at (${d.bounds.x}, ${d.bounds.y})`);
+  });
+  console.log(`Combined canvas: ${bounds.width}x${bounds.height} at (${bounds.x}, ${bounds.y})`);
+
   const win = new BrowserWindow({
-    fullscreen: true,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
     hasShadow: false,
     skipTaskbar: false,
+    show: false,  // Don't show until bounds are set
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       backgroundThrottling: false  // Keep animations at 60fps
     }
   });
+
+  // IMPORTANT: Set bounds AFTER creation to span multiple displays
+  // Windows doesn't allow creating windows larger than primary display in constructor
+  win.setBounds({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height
+  });
+
+  // Verify window bounds after setBounds
+  const actualBounds = win.getBounds();
+  console.log(`Window bounds after setBounds: ${actualBounds.width}x${actualBounds.height} at (${actualBounds.x}, ${actualBounds.y})`);
 
   // Enable click-through (pass all mouse events to windows below)
   win.setIgnoreMouseEvents(true, { forward: true });
@@ -87,6 +141,18 @@ function createWindow() {
 
   // Load Flask overlay page
   win.loadURL(FLASK_URL);
+
+  // Log dimensions as seen by the web page after load
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.executeJavaScript('({width: window.innerWidth, height: window.innerHeight, screenWidth: window.screen.width, screenHeight: window.screen.height})')
+      .then(dims => {
+        console.log(`Frontend sees window as: ${dims.width}x${dims.height}`);
+        console.log(`Frontend sees screen as: ${dims.screenWidth}x${dims.screenHeight}`);
+      });
+
+    // Show window after page loads and bounds are set
+    win.show();
+  });
 
   // Optional: Open DevTools for debugging (comment out for production)
   // win.webContents.openDevTools({ mode: 'detach' });

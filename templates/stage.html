@@ -679,10 +679,18 @@
     }
 
     // Update physics for all stickers
+    let physicsDimensionsLogged = false;
     function updatePhysics(deltaTime, timestamp) {
       const stageWidth = window.innerWidth;
       const stageHeight = window.innerHeight;
       const dt = deltaTime / 1000; // Convert to seconds
+
+      // Debug: log dimensions once
+      if (!physicsDimensionsLogged && stickers.size > 0) {
+        console.log('=== Physics Boundaries ===');
+        console.log('Stage dimensions for collision:', stageWidth, 'x', stageHeight);
+        physicsDimensionsLogged = true;
+      }
 
       // Update positions and dance animations
       for (const [id, sticker] of stickers) {
@@ -944,6 +952,10 @@
     });
 
     // Start
+    console.log('=== Stage Initialization ===');
+    console.log('Window dimensions:', window.innerWidth, 'x', window.innerHeight);
+    console.log('Screen dimensions:', window.screen.width, 'x', window.screen.height);
+    console.log('Device pixel ratio:', window.devicePixelRatio);
     audioSystem.init();
     connect();
     requestAnimationFrame(animationLoop);
