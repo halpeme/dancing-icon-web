@@ -91,7 +91,11 @@ def stage():
     local_ip = get_local_ip()
     camera_url = f"http://{local_ip}:5000/camera"
     qr_base64 = generate_qr_base64(camera_url)
-    return render_template('stage.html', qr_base64=qr_base64, camera_url=camera_url)
+
+    # Detect overlay mode from URL parameter
+    overlay_mode = request.args.get('mode') == 'overlay'
+
+    return render_template('stage.html', qr_base64=qr_base64, camera_url=camera_url, overlay_mode=overlay_mode)
 
 
 @app.route('/camera')

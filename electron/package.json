@@ -1,0 +1,12 @@
+{
+  "name": "dancing-stickers-overlay",
+  "version": "1.0.0",
+  "description": "Transparent desktop overlay for Dancing Stickers",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^28.0.0"
+  }
+}

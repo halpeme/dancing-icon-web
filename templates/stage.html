@@ -14,7 +14,11 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
+      {% if overlay_mode %}
+      background: transparent;
+      {% else %}
       background: #080808;
+      {% endif %}
     }
 
     /* QR Code Overlay */
@@ -249,6 +253,28 @@
   <script>
     // VERSION 8 - PERFORMANCE CLEANUP (removed debug logging)
 
+    // Mode detection from URL or template variable
+    const OVERLAY_MODE = new URLSearchParams(window.location.search).get('mode') === 'overlay';
+
+    if (OVERLAY_MODE) {
+      // Hide ALL UI elements - only show stickers
+      document.getElementById('qr-overlay')?.classList.add('hidden');
+      const toggleQrBtn = document.getElementById('toggle-qr');
+      if (toggleQrBtn) toggleQrBtn.style.setProperty('display', 'none');
+      const statusEl = document.getElementById('status');
+      if (statusEl) statusEl.style.setProperty('display', 'none');
+      const flashOverlay = document.getElementById('flash-overlay');
+      if (flashOverlay) flashOverlay.style.setProperty('display', 'none');
+      const spotlight = document.getElementById('spotlight');
+      if (spotlight) spotlight.style.setProperty('display', 'none');
+      const rippleCanvas = document.getElementById('ripple-canvas');
+      if (rippleCanvas) rippleCanvas.style.setProperty('display', 'none');
+
+      // CSS already handles this via template, but set as backup
+      document.body.style.background = 'transparent';
+      document.documentElement.style.background = 'transparent';
+    }
+
     // SHOWSTOPPER CONFIGURATION
     const CONFIG = {
       // Sticker entrance style
@@ -256,18 +282,18 @@
       entranceDuration: 2000,      // milliseconds
 
       // Audio system
-      enableAudio: true,
+      enableAudio: !OVERLAY_MODE,
       audioVolume: 0.6,
       maxConcurrentSounds: 3,
 
       // Stage-wide effects
-      enableFlash: true,
+      enableFlash: !OVERLAY_MODE,
       flashColor: 'white',         // or any CSS color
 
-      enableShake: true,
+      enableShake: !OVERLAY_MODE,
       shakeIntensity: 1.0,
 
-      enableRipple: true,
+      enableRipple: !OVERLAY_MODE,
 
       enableDimOthers: false,      // Performance: off by default
       dimDuration: 1800,           // milliseconds

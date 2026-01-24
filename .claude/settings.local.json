@@ -1,7 +1,28 @@
 {
   "permissions": {
     "allow": [
-      "Bash(winget install:*)"
+      "Bash(winget install:*)",
+      "Bash(gh auth login:*)",
+      "Bash(cmd //c \"\"\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\"\" auth login\")",
+      "Bash(gh api:*)",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)",
+      "Bash(ffmpeg:*)",
+      "Bash(python app.py:*)",
+      "Bash(timeout 3 bash:*)",
+      "Skill(pplx)",
+      "Skill(superpowers:brainstorming)",
+      "Skill(push-commit)",
+      "Bash(python -m pip:*)",
+      "Bash(python overlay.py:*)",
+      "Bash(pip install:*)",
+      "Bash(pip show:*)",
+      "Bash(start python app.py:*)",
+      "Bash(tsconfig)",
+      "Bash(webpack:*)",
+      "Bash(vite)",
+      "Bash(Makefile \")",
+      "Bash(cmd //c:*)"
     ]
   }
 }
