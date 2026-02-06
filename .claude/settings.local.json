@@ -22,7 +22,9 @@
       "Bash(webpack:*)",
       "Bash(vite)",
       "Bash(Makefile \")",
-      "Bash(cmd //c:*)"
+      "Bash(cmd //c:*)",
+      "Bash(find:*)",
+      "Bash(xargs:*)"
     ]
   }
 }

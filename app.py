@@ -12,7 +12,7 @@ import random
 import queue
 from flask import Flask, render_template, request, Response, jsonify
 from PIL import Image
-from rembg import remove
+from rembg import remove, new_session
 import qrcode
 
 app = Flask(__name__)
@@ -21,6 +21,12 @@ app = Flask(__name__)
 stickers = []  # List of {id, image_base64, x, y}
 MAX_STICKERS = 20
 sse_clients = []  # Active SSE client queues
+
+# Background removal sessions - let users choose speed vs quality
+bg_sessions = {
+    'fast': new_session('u2net'),           # Default U2Net - fast (~0.3s)
+    'quality': new_session('birefnet-general')  # BiRefNet - slow (~0.8s) but better
+}
 
 
 def get_local_ip():
@@ -114,6 +120,10 @@ def process():
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
 
+    # Get model preference (default to fast)
+    model = request.form.get('model', 'fast')
+    session = bg_sessions.get(model, bg_sessions['fast'])
+
     try:
         # Load and resize image
         img = Image.open(file.stream)
@@ -143,8 +153,8 @@ def process():
         img.save(img_bytes, format='PNG')
         img_bytes.seek(0)
 
-        # Remove background
-        output = remove(img_bytes.read())
+        # Remove background with selected model
+        output = remove(img_bytes.read(), session=session)
 
         # Convert to base64
         image_base64 = f"data:image/png;base64,{base64.b64encode(output).decode()}"
@@ -204,8 +214,8 @@ def upload():
         img.save(img_bytes, format='PNG')
         img_bytes.seek(0)
 
-        # Remove background
-        output = remove(img_bytes.read())
+        # Remove background (legacy route uses fast model)
+        output = remove(img_bytes.read(), session=bg_sessions['fast'])
 
         # Convert to base64
         image_base64 = f"data:image/png;base64,{base64.b64encode(output).decode()}"

@@ -125,12 +125,67 @@
       background: rgba(108, 99, 255, 0.1);
     }
 
+    /* Quality toggle */
+    #quality-toggle {
+      width: 100%;
+      max-width: 400px;
+      margin-top: 20px;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    #quality-toggle.visible {
+      display: flex;
+    }
+
+    #quality-toggle label {
+      font-size: 14px;
+      color: #aaa;
+      text-align: center;
+    }
+
+    .toggle-options {
+      display: flex;
+      background: #2d2d44;
+      border-radius: 12px;
+      padding: 4px;
+      gap: 4px;
+    }
+
+    .toggle-option {
+      flex: 1;
+      padding: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      background: transparent;
+      color: #888;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .toggle-option.active {
+      background: #6c63ff;
+      color: white;
+    }
+
+    .toggle-option span {
+      font-size: 11px;
+      opacity: 0.7;
+    }
+
     /* Process button */
     #process-btn {
       width: 100%;
       max-width: 400px;
       padding: 16px;
-      margin-top: 20px;
+      margin-top: 12px;
       font-size: 18px;
       font-weight: 600;
       background: #6c63ff;
@@ -362,6 +417,21 @@
   <input type="file" id="camera-input" accept="image/*" capture="environment">
   <input type="file" id="file-upload" accept="image/*">
 
+  <!-- Quality toggle -->
+  <div id="quality-toggle">
+    <label>Background Removal Quality</label>
+    <div class="toggle-options">
+      <button class="toggle-option active" data-model="fast">
+        <div>⚡ Fast</div>
+        <span>&lt;1s</span>
+      </button>
+      <button class="toggle-option" data-model="quality">
+        <div>✨ Quality</div>
+        <span>~10s</span>
+      </button>
+    </div>
+  </div>
+
   <button id="process-btn">Remove Background</button>
 
   <div id="status"></div>
@@ -388,6 +458,8 @@
     const fileUpload = document.getElementById('file-upload');
     const uploadBtn = document.getElementById('upload-btn');
     const originalPreview = document.getElementById('original-preview');
+    const qualityToggle = document.getElementById('quality-toggle');
+    const toggleOptions = document.querySelectorAll('.toggle-option');
     const processBtn = document.getElementById('process-btn');
     const status = document.getElementById('status');
     const previewArea = document.getElementById('preview-area');
@@ -401,6 +473,7 @@
     let selectedFile = null;
     let processedImage = null;
     let rotation = 0;
+    let selectedModel = 'fast'; // default to fast model
 
     // Tap capture area to open camera
     captureArea.addEventListener('click', () => {
@@ -412,6 +485,15 @@
     // Tap upload button to open file picker
     uploadBtn.addEventListener('click', () => {
       fileUpload.click();
+    });
+
+    // Quality toggle handlers
+    toggleOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        toggleOptions.forEach(opt => opt.classList.remove('active'));
+        option.classList.add('active');
+        selectedModel = option.dataset.model;
+      });
     });
 
     // Handle file selection (from camera or file upload)
@@ -452,6 +534,7 @@
       };
       reader.readAsDataURL(file);
 
+      qualityToggle.classList.add('visible');
       processBtn.classList.add('visible');
       previewArea.classList.remove('visible');
       status.classList.remove('visible');
@@ -501,6 +584,7 @@
 
       const formData = new FormData();
       formData.append('photo', selectedFile);
+      formData.append('model', selectedModel); // Pass selected model
 
       try {
         const response = await fetch('/process', {
@@ -520,6 +604,7 @@
 
           // Hide capture, show preview
           captureArea.style.display = 'none';
+          qualityToggle.classList.remove('visible');
           processBtn.classList.remove('visible');
           status.classList.remove('visible');
           previewArea.classList.add('visible');
@@ -595,6 +680,7 @@
       originalPreview.classList.remove('visible');
       captureArea.classList.remove('has-image');
       captureArea.style.display = 'flex';
+      qualityToggle.classList.remove('visible');
       processBtn.classList.remove('visible');
       processBtn.disabled = false;
       previewArea.classList.remove('visible');

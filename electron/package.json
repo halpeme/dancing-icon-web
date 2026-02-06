@@ -4,7 +4,8 @@
   "description": "Transparent desktop overlay for Dancing Stickers",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "python ../launcher.py",
+    "electron": "electron ."
   },
   "dependencies": {
     "electron": "^28.0.0"
