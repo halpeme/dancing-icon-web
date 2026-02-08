@@ -74,6 +74,7 @@
             transition: transform 0.2s, box-shadow 0.2s, border 0.3s;
             border: 3px solid #d0d0d0;
             position: relative;
+            cursor: pointer;
         }
 
         .gallery-item.active {
@@ -82,6 +83,11 @@
 
         .gallery-item.inactive {
             border-color: #d0d0d0;
+        }
+
+        .gallery-item.selected {
+            border-color: #3b82f6;
+            background: #eff6ff;
         }
 
         .gallery-item:hover {
@@ -186,6 +192,135 @@
             opacity: 0.7;
         }
 
+        /* PIN Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .modal-content h2 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .modal-content p {
+            margin-bottom: 20px;
+            color: #666;
+        }
+
+        .pin-input {
+            width: 100%;
+            padding: 15px;
+            font-size: 1.5rem;
+            text-align: center;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            letter-spacing: 10px;
+        }
+
+        .pin-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .modal-btn {
+            width: 100%;
+            padding: 15px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .modal-btn:hover {
+            background: #5a67d8;
+        }
+
+        .modal-btn:disabled {
+            background: #e5e7eb;
+            color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .error-message {
+            color: #ef4444;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        /* Selection checkbox */
+        .select-checkbox {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            z-index: 10;
+        }
+
+        /* Delete button */
+        .delete-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            padding: 15px 30px;
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 30px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+            transition: all 0.3s;
+            z-index: 100;
+            display: none;
+        }
+
+        .delete-btn.show {
+            display: block;
+        }
+
+        .delete-btn:hover {
+            background: #dc2626;
+            transform: scale(1.05);
+        }
+
+        .delete-btn:disabled {
+            background: #e5e7eb;
+            color: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+        }
+
         @media (max-width: 768px) {
             h1 {
                 font-size: 2rem;
@@ -199,14 +334,32 @@
             .image-wrapper {
                 height: 140px;
             }
+
+            .delete-btn {
+                bottom: 20px;
+                right: 20px;
+                padding: 12px 24px;
+                font-size: 1rem;
+            }
         }
     </style>
 </head>
 <body>
+    <!-- PIN Authentication Modal -->
+    <div class="modal" id="pinModal">
+        <div class="modal-content">
+            <h2>🔒 Authentication Required</h2>
+            <p>Enter PIN to access delete functionality</p>
+            <input type="password" class="pin-input" id="pinInput" placeholder="••••" maxlength="4" inputmode="numeric">
+            <button class="modal-btn" id="submitPin">Unlock</button>
+            <div class="error-message" id="pinError"></div>
+        </div>
+    </div>
+
     <div class="container">
         <header>
             <h1>Sticker Gallery</h1>
-            <p class="subtitle">All submitted stickers</p>
+            <p class="subtitle">All submitted stickers • Click to select, then delete</p>
             <div class="nav-links">
                 <a href="/">Back to Stage</a>
                 <a href="/camera">Take Photo</a>
@@ -216,17 +369,23 @@
         {% if images %}
             <div class="gallery">
                 {% for image in images %}
-                <div class="gallery-item inactive" data-filename="{{ image }}">
+                <div class="gallery-item inactive" data-filename="{{ image }}" onclick="selectSticker(event, '{{ image }}')">
+                    <input type="checkbox" class="select-checkbox" data-filename="{{ image }}" onclick="event.stopPropagation(); selectSticker(event, '{{ image }}')">
                     <span class="status-badge inactive">Saved</span>
                     <div class="image-wrapper">
                         <img src="/uploads/{{ image }}" alt="Sticker">
                     </div>
-                    <button class="toggle-btn activate" onclick="toggleSticker('{{ image }}', 'activate')">
+                    <button class="toggle-btn activate" onclick="event.stopPropagation(); toggleSticker('{{ image }}', 'activate')">
                         Activate
                     </button>
                 </div>
                 {% endfor %}
             </div>
+
+            <!-- Delete button -->
+            <button class="delete-btn" id="deleteBtn" onclick="deleteSelected()">
+                Delete <span id="deleteCount">0</span> selected
+            </button>
         {% else %}
             <div class="empty-state">
                 <h2>No stickers yet</h2>
@@ -239,6 +398,67 @@
         // Track active stickers
         let activeStickers = new Set();
         let eventSource = null;
+        let selectedStickers = new Set();
+        let isAuthenticated = false;
+
+        // Check authentication status
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/check_auth');
+                const data = await response.json();
+                isAuthenticated = data.authenticated;
+
+                if (!isAuthenticated) {
+                    document.getElementById('pinModal').classList.add('active');
+                }
+            } catch (error) {
+                console.error('Auth check error:', error);
+            }
+        }
+
+        // Handle PIN submission
+        document.getElementById('submitPin').addEventListener('click', async () => {
+            const pin = document.getElementById('pinInput').value;
+            const errorEl = document.getElementById('pinError');
+            const submitBtn = document.getElementById('submitPin');
+
+            if (!pin || pin.length !== 4) {
+                errorEl.textContent = 'Please enter a 4-digit PIN';
+                return;
+            }
+
+            submitBtn.disabled = true;
+            errorEl.textContent = '';
+
+            try {
+                const response = await fetch('/api/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    isAuthenticated = true;
+                    document.getElementById('pinModal').classList.remove('active');
+                } else {
+                    errorEl.textContent = data.error || 'Invalid PIN';
+                    document.getElementById('pinInput').value = '';
+                }
+            } catch (error) {
+                errorEl.textContent = 'Authentication failed';
+            } finally {
+                submitBtn.disabled = false;
+            }
+        });
+
+        // Allow Enter key in PIN input
+        document.getElementById('pinInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('submitPin').click();
+            }
+        });
 
         // Fetch initial active stickers
         async function loadActiveStickers() {
@@ -249,6 +469,95 @@
                 updateGalleryUI();
             } catch (error) {
                 console.error('Failed to load active stickers:', error);
+            }
+        }
+
+        // Select/deselect sticker
+        function selectSticker(event, filename) {
+            const item = document.querySelector(`.gallery-item[data-filename="${filename}"]`);
+            const checkbox = item.querySelector('.select-checkbox');
+
+            if (selectedStickers.has(filename)) {
+                selectedStickers.delete(filename);
+                item.classList.remove('selected');
+                checkbox.checked = false;
+            } else {
+                selectedStickers.add(filename);
+                item.classList.add('selected');
+                checkbox.checked = true;
+            }
+
+            updateDeleteButton();
+        }
+
+        // Update delete button visibility and count
+        function updateDeleteButton() {
+            const deleteBtn = document.getElementById('deleteBtn');
+            const countSpan = document.getElementById('deleteCount');
+
+            if (selectedStickers.size > 0) {
+                deleteBtn.classList.add('show');
+                countSpan.textContent = selectedStickers.size;
+            } else {
+                deleteBtn.classList.remove('show');
+            }
+        }
+
+        // Delete selected stickers
+        async function deleteSelected() {
+            if (selectedStickers.size === 0) return;
+
+            const count = selectedStickers.size;
+            const confirmed = confirm(`Are you sure you want to permanently delete ${count} sticker${count > 1 ? 's' : ''}?`);
+
+            if (!confirmed) return;
+
+            const deleteBtn = document.getElementById('deleteBtn');
+            deleteBtn.disabled = true;
+
+            try {
+                const response = await fetch('/api/delete_stickers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filenames: Array.from(selectedStickers) })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Remove deleted items from DOM
+                    data.deleted.forEach(filename => {
+                        const item = document.querySelector(`.gallery-item[data-filename="${filename}"]`);
+                        if (item) {
+                            item.style.transition = 'opacity 0.3s';
+                            item.style.opacity = '0';
+                            setTimeout(() => item.remove(), 300);
+                        }
+                        selectedStickers.delete(filename);
+                        activeStickers.delete(filename);
+                    });
+
+                    // Show errors if any
+                    if (data.errors.length > 0) {
+                        alert(`Deleted ${data.deleted_count} sticker(s). Errors: ${data.error_count}`);
+                    }
+
+                    updateDeleteButton();
+
+                    // Check if gallery is now empty
+                    setTimeout(() => {
+                        if (document.querySelectorAll('.gallery-item').length === 0) {
+                            location.reload();
+                        }
+                    }, 500);
+                } else {
+                    alert(data.error || 'Failed to delete stickers');
+                }
+            } catch (error) {
+                console.error('Delete error:', error);
+                alert('Failed to delete stickers');
+            } finally {
+                deleteBtn.disabled = false;
             }
         }
 
@@ -269,7 +578,7 @@
                     button.classList.remove('activate');
                     button.classList.add('deactivate');
                     button.textContent = 'Deactivate';
-                    button.onclick = () => toggleSticker(filename, 'deactivate');
+                    button.onclick = (e) => { e.stopPropagation(); toggleSticker(filename, 'deactivate'); };
                 } else {
                     item.classList.remove('active');
                     item.classList.add('inactive');
@@ -279,7 +588,7 @@
                     button.classList.remove('deactivate');
                     button.classList.add('activate');
                     button.textContent = 'Activate';
-                    button.onclick = () => toggleSticker(filename, 'activate');
+                    button.onclick = (e) => { e.stopPropagation(); toggleSticker(filename, 'activate'); };
                 }
             });
         }
@@ -353,6 +662,7 @@
         }
 
         // Initialize on page load
+        checkAuth();
         loadActiveStickers();
         connectSSE();
     </script>

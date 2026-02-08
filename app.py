@@ -23,12 +23,13 @@ import random
 import queue
 import numpy as np
 from datetime import datetime
-from flask import Flask, render_template, request, Response, jsonify, send_from_directory
+from flask import Flask, render_template, request, Response, jsonify, send_from_directory, session
 from PIL import Image
 from rembg import remove, new_session
 import qrcode
 
 app = Flask(__name__)
+app.secret_key = 'dancing-sticker-secure-key-2026'  # For session management
 
 # Create uploads directory for saving processed stickers
 UPLOADS_DIR = 'uploads'
@@ -399,6 +400,92 @@ def toggle_sticker():
 
     else:
         return jsonify({'error': 'Invalid action. Use "activate" or "deactivate"'}), 400
+
+
+@app.route('/api/auth', methods=['POST'])
+def authenticate():
+    """Verify PIN code for gallery delete access
+
+    Request JSON:
+        pin: str - The PIN code (should be '1234')
+    """
+    data = request.get_json()
+    if not data or 'pin' not in data:
+        return jsonify({'error': 'Missing PIN'}), 400
+
+    pin = str(data['pin'])
+    if pin == '1234':
+        session['authenticated'] = True
+        return jsonify({'success': True})
+    else:
+        return jsonify({'error': 'Invalid PIN'}), 401
+
+
+@app.route('/api/check_auth')
+def check_auth():
+    """Check if current session is authenticated"""
+    return jsonify({'authenticated': session.get('authenticated', False)})
+
+
+@app.route('/api/delete_stickers', methods=['POST'])
+def delete_stickers():
+    """Delete stickers from gallery (requires authentication)
+
+    Request JSON:
+        filenames: list[str] - List of filenames to delete
+    """
+    # Check authentication
+    if not session.get('authenticated', False):
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    data = request.get_json()
+    if not data or 'filenames' not in data:
+        return jsonify({'error': 'Missing filenames'}), 400
+
+    filenames = data['filenames']
+    if not isinstance(filenames, list) or len(filenames) == 0:
+        return jsonify({'error': 'Invalid filenames list'}), 400
+
+    deleted = []
+    errors = []
+
+    for filename in filenames:
+        # Security: ensure filename doesn't contain path traversal
+        if '/' in filename or '\\' in filename or '..' in filename:
+            errors.append({'filename': filename, 'error': 'Invalid filename'})
+            continue
+
+        filepath = os.path.join(UPLOADS_DIR, filename)
+
+        # Check if file exists
+        if not os.path.exists(filepath):
+            errors.append({'filename': filename, 'error': 'File not found'})
+            continue
+
+        try:
+            # Remove from active stickers if present
+            image_url = f"/uploads/{filename}"
+            for i, sticker in enumerate(stickers):
+                if sticker['image'] == image_url:
+                    removed = stickers.pop(i)
+                    broadcast({'type': 'remove', 'id': removed['id']})
+                    break
+
+            # Delete file from filesystem
+            os.remove(filepath)
+            deleted.append(filename)
+            print(f"[INFO] Deleted sticker: {filename}")
+
+        except Exception as e:
+            errors.append({'filename': filename, 'error': str(e)})
+
+    return jsonify({
+        'success': True,
+        'deleted': deleted,
+        'errors': errors,
+        'deleted_count': len(deleted),
+        'error_count': len(errors)
+    })
 
 
 @app.route('/gallery')
