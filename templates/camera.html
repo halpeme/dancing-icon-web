@@ -125,6 +125,26 @@
       background: rgba(108, 99, 255, 0.1);
     }
 
+    /* Mode toggle */
+    #mode-toggle {
+      width: 100%;
+      max-width: 400px;
+      margin-top: 20px;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    #mode-toggle.visible {
+      display: flex;
+    }
+
+    #mode-toggle label {
+      font-size: 14px;
+      color: #aaa;
+      text-align: center;
+    }
+
     /* Quality toggle */
     #quality-toggle {
       width: 100%;
@@ -143,6 +163,35 @@
       font-size: 14px;
       color: #aaa;
       text-align: center;
+    }
+
+    /* Selection toggle (for manual mode) */
+    #selection-toggle {
+      width: 100%;
+      max-width: 400px;
+      margin-top: 20px;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    #selection-toggle.visible {
+      display: flex;
+    }
+
+    #selection-toggle label {
+      font-size: 14px;
+      color: #aaa;
+      text-align: center;
+    }
+
+    /* Clear points button */
+    #clear-points-btn {
+      display: none;
+    }
+
+    #clear-points-btn.visible {
+      display: flex;
     }
 
     .toggle-options {
@@ -388,6 +437,49 @@
     #capture-area.has-image p {
       display: none;
     }
+
+    /* Canvas overlay for manual selection */
+    #selection-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+      display: none;
+    }
+
+    #selection-canvas.visible {
+      display: block;
+    }
+
+    #capture-area {
+      position: relative;
+    }
+
+    /* Manual mode instructions */
+    .manual-instructions {
+      width: 100%;
+      max-width: 400px;
+      margin-top: 12px;
+      padding: 12px;
+      background: #2d2d44;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #aaa;
+      text-align: center;
+      display: none;
+    }
+
+    .manual-instructions.visible {
+      display: block;
+    }
+
+    .manual-instructions strong {
+      color: #6c63ff;
+      display: block;
+      margin-bottom: 8px;
+    }
   </style>
 </head>
 <body>
@@ -401,6 +493,7 @@
     </svg>
     <p>Take a Photo</p>
     <img id="original-preview" alt="Preview">
+    <canvas id="selection-canvas"></canvas>
   </div>
 
   <div class="separator">
@@ -417,7 +510,22 @@
   <input type="file" id="camera-input" accept="image/*" capture="environment">
   <input type="file" id="file-upload" accept="image/*">
 
-  <!-- Quality toggle -->
+  <!-- Mode toggle -->
+  <div id="mode-toggle">
+    <label>Removal Mode</label>
+    <div class="toggle-options">
+      <button class="toggle-option active" data-mode="auto">
+        <div>🤖 Auto Remove</div>
+        <span>AI detects</span>
+      </button>
+      <button class="toggle-option" data-mode="manual">
+        <div>✋ Manual Select</div>
+        <span>Click areas</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Quality toggle (only for auto mode) -->
   <div id="quality-toggle">
     <label>Background Removal Quality</label>
     <div class="toggle-options">
@@ -430,6 +538,36 @@
         <span>~10s</span>
       </button>
     </div>
+  </div>
+
+  <!-- Selection toggle (only for manual mode) -->
+  <div id="selection-toggle">
+    <label>Click on image to mark areas</label>
+    <div class="toggle-options">
+      <button class="toggle-option active" data-selection="keep">
+        <div>✅ Keep Area</div>
+        <span>Foreground</span>
+      </button>
+      <button class="toggle-option" data-selection="remove">
+        <div>❌ Remove Area</div>
+        <span>Background</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Clear points button -->
+  <button id="clear-points-btn" class="secondary-btn" style="margin-top: 12px;">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+      <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+    </svg>
+    Clear All Points
+  </button>
+
+  <!-- Manual mode instructions -->
+  <div class="manual-instructions">
+    <strong>How to use Manual Mode:</strong>
+    Select Keep or Remove, then click areas on the image.<br>
+    Green = Keep • Red = Remove
   </div>
 
   <button id="process-btn">Remove Background</button>
@@ -458,8 +596,15 @@
     const fileUpload = document.getElementById('file-upload');
     const uploadBtn = document.getElementById('upload-btn');
     const originalPreview = document.getElementById('original-preview');
+    const modeToggle = document.getElementById('mode-toggle');
+    const modeOptions = document.querySelectorAll('#mode-toggle .toggle-option');
     const qualityToggle = document.getElementById('quality-toggle');
-    const toggleOptions = document.querySelectorAll('.toggle-option');
+    const qualityOptions = document.querySelectorAll('#quality-toggle .toggle-option');
+    const selectionToggle = document.getElementById('selection-toggle');
+    const selectionOptions = document.querySelectorAll('#selection-toggle .toggle-option');
+    const clearPointsBtn = document.getElementById('clear-points-btn');
+    const manualInstructions = document.querySelector('.manual-instructions');
+    const selectionCanvas = document.getElementById('selection-canvas');
     const processBtn = document.getElementById('process-btn');
     const status = document.getElementById('status');
     const previewArea = document.getElementById('preview-area');
@@ -473,7 +618,12 @@
     let selectedFile = null;
     let processedImage = null;
     let rotation = 0;
-    let selectedModel = 'fast'; // default to fast model
+    let selectedMode = 'auto'; // auto or manual
+    let selectedModel = 'fast'; // fast or quality (for auto mode)
+    let currentSelection = 'keep'; // keep or remove (for manual mode)
+    let manualPoints = []; // [[y, x], ...]
+    let manualLabels = []; // [1, 2, ...] where 1=foreground, 2=background
+    let canvasContext = null;
 
     // Tap capture area to open camera
     captureArea.addEventListener('click', () => {
@@ -487,12 +637,51 @@
       fileUpload.click();
     });
 
-    // Quality toggle handlers
-    toggleOptions.forEach(option => {
+    // Mode toggle handlers
+    modeOptions.forEach(option => {
       option.addEventListener('click', () => {
-        toggleOptions.forEach(opt => opt.classList.remove('active'));
+        modeOptions.forEach(opt => opt.classList.remove('active'));
+        option.classList.add('active');
+        selectedMode = option.dataset.mode;
+
+        // Show/hide toggles based on mode
+        if (selectedMode === 'auto') {
+          qualityToggle.classList.add('visible');
+          selectionToggle.classList.remove('visible');
+          clearPointsBtn.classList.remove('visible');
+          manualInstructions.classList.remove('visible');
+          selectionCanvas.classList.remove('visible');
+          // Clear manual selections
+          manualPoints = [];
+          manualLabels = [];
+          if (canvasContext) {
+            canvasContext.clearRect(0, 0, selectionCanvas.width, selectionCanvas.height);
+          }
+        } else {
+          qualityToggle.classList.remove('visible');
+          selectionToggle.classList.add('visible');
+          clearPointsBtn.classList.add('visible');
+          manualInstructions.classList.add('visible');
+          selectionCanvas.classList.add('visible');
+        }
+      });
+    });
+
+    // Quality toggle handlers (for auto mode)
+    qualityOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        qualityOptions.forEach(opt => opt.classList.remove('active'));
         option.classList.add('active');
         selectedModel = option.dataset.model;
+      });
+    });
+
+    // Selection toggle handlers (for manual mode)
+    selectionOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        selectionOptions.forEach(opt => opt.classList.remove('active'));
+        option.classList.add('active');
+        currentSelection = option.dataset.selection;
       });
     });
 
@@ -524,6 +713,8 @@
       selectedFile = file;
       processedImage = null;
       rotation = 0;
+      manualPoints = [];
+      manualLabels = [];
 
       // Show original preview
       const reader = new FileReader();
@@ -531,10 +722,27 @@
         originalPreview.src = e.target.result;
         originalPreview.classList.add('visible');
         captureArea.classList.add('has-image');
+
+        // Setup canvas for manual mode
+        originalPreview.onload = () => {
+          const rect = originalPreview.getBoundingClientRect();
+          selectionCanvas.width = rect.width;
+          selectionCanvas.height = rect.height;
+          canvasContext = selectionCanvas.getContext('2d');
+        };
       };
       reader.readAsDataURL(file);
 
-      qualityToggle.classList.add('visible');
+      modeToggle.classList.add('visible');
+      // Show appropriate toggles based on mode
+      if (selectedMode === 'auto') {
+        qualityToggle.classList.add('visible');
+      } else {
+        selectionToggle.classList.add('visible');
+        clearPointsBtn.classList.add('visible');
+        manualInstructions.classList.add('visible');
+        selectionCanvas.classList.add('visible');
+      }
       processBtn.classList.add('visible');
       previewArea.classList.remove('visible');
       status.classList.remove('visible');
@@ -543,6 +751,87 @@
     // Attach handler to both inputs
     cameraInput.addEventListener('change', handleFileSelection);
     fileUpload.addEventListener('change', handleFileSelection);
+
+    // Canvas click handler for manual point selection
+    selectionCanvas.addEventListener('click', (e) => {
+      if (selectedMode !== 'manual' || !canvasContext) return;
+
+      const rect = selectionCanvas.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+
+      // Calculate actual displayed image dimensions within the container
+      // (accounting for object-fit: contain padding)
+      const imgNaturalRatio = originalPreview.naturalWidth / originalPreview.naturalHeight;
+      const containerRatio = rect.width / rect.height;
+
+      let displayedWidth, displayedHeight, offsetX, offsetY;
+
+      if (imgNaturalRatio > containerRatio) {
+        // Image is wider - will have vertical padding (pillarboxed)
+        displayedWidth = rect.width;
+        displayedHeight = rect.width / imgNaturalRatio;
+        offsetX = 0;
+        offsetY = (rect.height - displayedHeight) / 2;
+      } else {
+        // Image is taller - will have horizontal padding (letterboxed)
+        displayedWidth = rect.height * imgNaturalRatio;
+        displayedHeight = rect.height;
+        offsetX = (rect.width - displayedWidth) / 2;
+        offsetY = 0;
+      }
+
+      // Adjust click coordinates to account for padding
+      const adjustedX = clickX - offsetX;
+      const adjustedY = clickY - offsetY;
+
+      // Check if click is outside the actual image area (in padding)
+      if (adjustedX < 0 || adjustedX > displayedWidth || adjustedY < 0 || adjustedY > displayedHeight) {
+        return; // Ignore clicks in padding area
+      }
+
+      // Use current selection mode (keep or remove)
+      const isKeep = currentSelection === 'keep';
+      const label = isKeep ? 1 : 0;  // SAM expects: 1=foreground (keep), 0=background (remove)
+
+      // Scale coordinates from displayed size to original image natural dimensions
+      const scaleX = originalPreview.naturalWidth / displayedWidth;
+      const scaleY = originalPreview.naturalHeight / displayedHeight;
+      const imgX = adjustedX * scaleX;
+      const imgY = adjustedY * scaleY;
+
+      // Store point in [y, x] format as required by rembg/SAM
+      manualPoints.push([imgY, imgX]);
+      manualLabels.push(label);
+
+      // Draw dot on canvas at click position (use original click coordinates for display)
+      canvasContext.fillStyle = isKeep ? 'rgba(0, 255, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
+      canvasContext.beginPath();
+      canvasContext.arc(clickX, clickY, 8, 0, 2 * Math.PI);
+      canvasContext.fill();
+
+      // Draw outline
+      canvasContext.strokeStyle = 'white';
+      canvasContext.lineWidth = 2;
+      canvasContext.stroke();
+
+      // Draw number label
+      canvasContext.fillStyle = 'white';
+      canvasContext.font = 'bold 12px sans-serif';
+      canvasContext.textAlign = 'center';
+      canvasContext.textBaseline = 'middle';
+      canvasContext.fillText(manualPoints.length, clickX, clickY);
+    });
+
+    // Clear points button handler
+    clearPointsBtn.addEventListener('click', () => {
+      manualPoints = [];
+      manualLabels = [];
+      if (canvasContext) {
+        canvasContext.clearRect(0, 0, selectionCanvas.width, selectionCanvas.height);
+      }
+      status.classList.remove('visible');
+    });
 
     // Drag-and-drop support for desktop
     captureArea.addEventListener('dragover', (e) => {
@@ -578,13 +867,33 @@
     processBtn.addEventListener('click', async () => {
       if (!selectedFile) return;
 
+      // Validate manual mode has points
+      if (selectedMode === 'manual' && manualPoints.length === 0) {
+        status.className = 'error visible';
+        status.textContent = 'Please select at least one area by clicking on the image';
+        return;
+      }
+
       processBtn.disabled = true;
       status.className = 'processing visible';
-      status.innerHTML = '<span class="spinner"></span>Removing background...';
+
+      if (selectedMode === 'manual') {
+        status.innerHTML = `<span class="spinner"></span>Processing ${manualPoints.length} selection(s)...`;
+      } else {
+        status.innerHTML = '<span class="spinner"></span>Removing background...';
+      }
 
       const formData = new FormData();
       formData.append('photo', selectedFile);
-      formData.append('model', selectedModel); // Pass selected model
+      formData.append('mode', selectedMode); // Pass mode (auto or manual)
+
+      if (selectedMode === 'auto') {
+        formData.append('model', selectedModel); // Pass selected model for auto mode
+      } else {
+        // Pass points and labels for manual mode
+        formData.append('points', JSON.stringify(manualPoints));
+        formData.append('labels', JSON.stringify(manualLabels));
+      }
 
       try {
         const response = await fetch('/process', {
@@ -604,7 +913,12 @@
 
           // Hide capture, show preview
           captureArea.style.display = 'none';
+          modeToggle.classList.remove('visible');
           qualityToggle.classList.remove('visible');
+          selectionToggle.classList.remove('visible');
+          clearPointsBtn.classList.remove('visible');
+          manualInstructions.classList.remove('visible');
+          selectionCanvas.classList.remove('visible');
           processBtn.classList.remove('visible');
           status.classList.remove('visible');
           previewArea.classList.add('visible');
@@ -674,13 +988,23 @@
       selectedFile = null;
       processedImage = null;
       rotation = 0;
+      manualPoints = [];
+      manualLabels = [];
       cameraInput.value = '';
       fileUpload.value = '';
       originalPreview.src = '';
       originalPreview.classList.remove('visible');
       captureArea.classList.remove('has-image');
       captureArea.style.display = 'flex';
+      modeToggle.classList.remove('visible');
       qualityToggle.classList.remove('visible');
+      selectionToggle.classList.remove('visible');
+      clearPointsBtn.classList.remove('visible');
+      manualInstructions.classList.remove('visible');
+      selectionCanvas.classList.remove('visible');
+      if (canvasContext) {
+        canvasContext.clearRect(0, 0, selectionCanvas.width, selectionCanvas.height);
+      }
       processBtn.classList.remove('visible');
       processBtn.disabled = false;
       previewArea.classList.remove('visible');

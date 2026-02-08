@@ -24,7 +24,8 @@
       "Bash(Makefile \")",
       "Bash(cmd //c:*)",
       "Bash(find:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(python -c:*)"
     ]
   }
 }

@@ -50,7 +50,7 @@ instance/
 ~/.u2net/
 
 # User uploaded content (if you want to exclude uploaded images)
-# uploads/
+uploads/
 # static/uploads/
 
 # OS

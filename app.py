@@ -1,32 +1,84 @@
 """
 Dancing Sticker Stage - Flask Server
 Phone users take photos -> AI removes background -> stickers dance on stage
+
+Performance Optimizations:
+- Lazy-load rembg models (birefnet, sam) on first use
+- EXIF auto-rotation using ImageOps.exif_transpose()
+- URL-based image storage (not base64)
+
+GPU Acceleration (optional):
+Install onnxruntime-gpu for 5-10x background removal speedup:
+  pip install onnxruntime-gpu (NVIDIA CUDA)
+  pip install onnxruntime-directml (Windows DirectML)
 """
 
 import io
+import os
 import json
 import uuid
 import socket
 import base64
 import random
 import queue
-from flask import Flask, render_template, request, Response, jsonify
+import numpy as np
+from datetime import datetime
+from flask import Flask, render_template, request, Response, jsonify, send_from_directory
 from PIL import Image
 from rembg import remove, new_session
 import qrcode
 
 app = Flask(__name__)
 
+# Create uploads directory for saving processed stickers
+UPLOADS_DIR = 'uploads'
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+
 # In-memory state
-stickers = []  # List of {id, image_base64, x, y}
+stickers = []  # List of {id, image (URL), x, y}
 MAX_STICKERS = 20
 sse_clients = []  # Active SSE client queues
 
-# Background removal sessions - let users choose speed vs quality
+# Background removal sessions - lazy-loaded for faster startup
+# Only preload 'fast' model, others loaded on first use
 bg_sessions = {
-    'fast': new_session('u2net'),           # Default U2Net - fast (~0.3s)
-    'quality': new_session('birefnet-general')  # BiRefNet - slow (~0.8s) but better
+    'fast': new_session('u2net'),  # Preload fast model (~176MB)
 }
+
+def get_bg_session(model_name):
+    """Lazy-load background removal sessions
+
+    Models:
+    - u2net: Fast, good quality (~0.3s)
+    - birefnet-general: Slower, best quality (~0.8s)
+    - sam: Manual point-based selection
+
+    GPU Acceleration:
+    Install onnxruntime-gpu for 5-10x speedup:
+    pip install onnxruntime-gpu (CUDA) or onnxruntime-directml (Windows)
+    """
+    if model_name not in bg_sessions:
+        print(f"[INFO] Loading '{model_name}' model (first use)...")
+        bg_sessions[model_name] = new_session(model_name)
+        print(f"[INFO] Model '{model_name}' loaded successfully")
+
+    return bg_sessions[model_name]
+
+
+def png_to_webp(png_bytes, quality=90):
+    """Convert PNG bytes to WebP for 50-70% size reduction
+
+    Args:
+        png_bytes: PNG image as bytes
+        quality: WebP quality (1-100, default 90)
+
+    Returns:
+        WebP image as bytes
+    """
+    img = Image.open(io.BytesIO(png_bytes))
+    webp_bytes = io.BytesIO()
+    img.save(webp_bytes, format='WEBP', quality=quality, method=6)  # method=6 = slowest but best compression
+    return webp_bytes.getvalue()
 
 
 def get_local_ip():
@@ -68,11 +120,15 @@ def broadcast(event_data):
         sse_clients.remove(dead)
 
 
-def add_sticker(image_base64):
-    """Add sticker to list, remove oldest if full"""
+def add_sticker(image_url):
+    """Add sticker to list, remove oldest if full
+
+    Args:
+        image_url: File URL like '/uploads/20260208_143022_456.png'
+    """
     sticker = {
         'id': str(uuid.uuid4()),
-        'image': image_base64,
+        'image': image_url,
         'x': random.randint(10, 90),
         'y': random.randint(10, 90)
     }
@@ -120,9 +176,17 @@ def process():
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
 
-    # Get model preference (default to fast)
+    # Get mode (auto or manual)
+    mode = request.form.get('mode', 'auto')
+
+    # Get model preference for auto mode (default to fast)
     model = request.form.get('model', 'fast')
-    session = bg_sessions.get(model, bg_sessions['fast'])
+
+    # Select session based on mode (lazy-loaded)
+    if mode == 'manual':
+        session = get_bg_session('sam')
+    else:
+        session = get_bg_session(model if model in ['u2net', 'birefnet-general', 'sam'] else 'u2net')
 
     try:
         # Load and resize image
@@ -130,20 +194,9 @@ def process():
 
         # Fix rotation from EXIF data (phone photos)
         try:
-            from PIL import ExifTags
-            for orientation in ExifTags.TAGS.keys():
-                if ExifTags.TAGS[orientation] == 'Orientation':
-                    break
-            exif = img._getexif()
-            if exif is not None:
-                orientation_value = exif.get(orientation)
-                if orientation_value == 3:
-                    img = img.rotate(180, expand=True)
-                elif orientation_value == 6:
-                    img = img.rotate(270, expand=True)
-                elif orientation_value == 8:
-                    img = img.rotate(90, expand=True)
-        except (AttributeError, KeyError, IndexError):
+            from PIL import ImageOps
+            img = ImageOps.exif_transpose(img) or img
+        except Exception:
             pass
 
         img.thumbnail((800, 800), Image.Resampling.LANCZOS)
@@ -153,11 +206,36 @@ def process():
         img.save(img_bytes, format='PNG')
         img_bytes.seek(0)
 
-        # Remove background with selected model
-        output = remove(img_bytes.read(), session=session)
+        # Remove background
+        if mode == 'manual':
+            # Get points and labels from request
+            points_json = request.form.get('points', '[]')
+            labels_json = request.form.get('labels', '[]')
+
+            points = json.loads(points_json)
+            labels = json.loads(labels_json)
+
+            # Convert to numpy arrays
+            input_points = np.array(points, dtype=np.float32)
+            input_labels = np.array(labels, dtype=np.int32)
+
+            # Remove background with manual guidance
+            output = remove(
+                img_bytes.read(),
+                session=session,
+                input_points=input_points,
+                input_labels=input_labels,
+                post_process_mask=True  # Smooth edges
+            )
+        else:
+            # Auto mode - use selected model
+            output = remove(img_bytes.read(), session=session)
+
+        # Convert PNG to WebP for 50-70% size reduction
+        webp_output = png_to_webp(output, quality=90)
 
         # Convert to base64
-        image_base64 = f"data:image/png;base64,{base64.b64encode(output).decode()}"
+        image_base64 = f"data:image/webp;base64,{base64.b64encode(webp_output).decode()}"
 
         return jsonify({'success': True, 'image': image_base64})
 
@@ -178,16 +256,36 @@ def submit():
 
         # Apply rotation if needed
         if rotation != 0:
-            # Decode base64, rotate, re-encode
-            img_data = base64.b64decode(image_base64.split(',')[1])
-            img = Image.open(io.BytesIO(img_data))
+            # Decode base64, rotate, re-encode as WebP
+            raw_data = base64.b64decode(image_base64.split(',')[1])
+            img = Image.open(io.BytesIO(raw_data))
             img = img.rotate(-rotation, expand=True)  # Negative because CSS rotation is clockwise
 
             img_bytes = io.BytesIO()
-            img.save(img_bytes, format='PNG')
-            image_base64 = f"data:image/png;base64,{base64.b64encode(img_bytes.getvalue()).decode()}"
+            img.save(img_bytes, format='WEBP', quality=90, method=6)
+            save_bytes = img_bytes.getvalue()
+        else:
+            save_bytes = base64.b64decode(image_base64.split(',')[1])
 
-        sticker = add_sticker(image_base64)
+        # CRITICAL: Save file FIRST before adding to stickers list
+        try:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]
+            filename = f"{timestamp}.webp"
+            filepath = os.path.join(UPLOADS_DIR, filename)
+
+            with open(filepath, 'wb') as f:
+                f.write(save_bytes)
+
+            print(f"[INFO] Saved sticker: {filename}")
+        except Exception as e:
+            # FAIL REQUEST - file save is required for URL-based system
+            return jsonify({'error': f'Failed to save file: {str(e)}'}), 500
+
+        # Create file URL
+        image_url = f"/uploads/{filename}"
+
+        # Add sticker with URL instead of base64
+        sticker = add_sticker(image_url)
         return jsonify({'success': True, 'sticker_id': sticker['id']})
 
     except Exception as e:
@@ -215,18 +313,114 @@ def upload():
         img_bytes.seek(0)
 
         # Remove background (legacy route uses fast model)
-        output = remove(img_bytes.read(), session=bg_sessions['fast'])
+        output = remove(img_bytes.read(), session=get_bg_session('u2net'))
 
-        # Convert to base64
-        image_base64 = f"data:image/png;base64,{base64.b64encode(output).decode()}"
+        # Convert to WebP for smaller file size
+        webp_output = png_to_webp(output, quality=90)
 
-        # Add to stage
-        sticker = add_sticker(image_base64)
+        # Save file to disk
+        try:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]
+            filename = f"{timestamp}.webp"
+            filepath = os.path.join(UPLOADS_DIR, filename)
+
+            with open(filepath, 'wb') as f:
+                f.write(webp_output)
+
+            print(f"[INFO] Saved sticker: {filename}")
+        except Exception as e:
+            return jsonify({'error': f'Failed to save file: {str(e)}'}), 500
+
+        # Create file URL
+        image_url = f"/uploads/{filename}"
+
+        # Add to stage with URL
+        sticker = add_sticker(image_url)
 
         return jsonify({'success': True, 'sticker_id': sticker['id']})
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/active_stickers')
+def get_active_stickers():
+    """Get list of currently active sticker filenames"""
+    # Extract filenames from active stickers' image URLs
+    active_filenames = []
+    for sticker in stickers:
+        # image URL format: '/uploads/20260208_143022_456.webp'
+        filename = sticker['image'].split('/')[-1]
+        active_filenames.append(filename)
+
+    return jsonify({'active': active_filenames})
+
+
+@app.route('/api/toggle_sticker', methods=['POST'])
+def toggle_sticker():
+    """Activate or deactivate a sticker from the gallery
+
+    Request JSON:
+        filename: str - The sticker filename (e.g., '20260208_143022_456.webp')
+        action: str - 'activate' or 'deactivate'
+    """
+    data = request.get_json()
+    if not data or 'filename' not in data or 'action' not in data:
+        return jsonify({'error': 'Missing filename or action'}), 400
+
+    filename = data['filename']
+    action = data['action']
+    image_url = f"/uploads/{filename}"
+
+    # Verify file exists
+    filepath = os.path.join(UPLOADS_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+
+    if action == 'activate':
+        # Check if already active
+        for sticker in stickers:
+            if sticker['image'] == image_url:
+                return jsonify({'error': 'Already active'}), 400
+
+        # Add to stage with entrance animation (same as new submission)
+        sticker = add_sticker(image_url)
+        return jsonify({'success': True, 'sticker_id': sticker['id'], 'action': 'activated'})
+
+    elif action == 'deactivate':
+        # Find and remove from active stickers
+        for i, sticker in enumerate(stickers):
+            if sticker['image'] == image_url:
+                removed = stickers.pop(i)
+                broadcast({'type': 'remove', 'id': removed['id']})
+                return jsonify({'success': True, 'sticker_id': removed['id'], 'action': 'deactivated'})
+
+        return jsonify({'error': 'Not currently active'}), 400
+
+    else:
+        return jsonify({'error': 'Invalid action. Use "activate" or "deactivate"'}), 400
+
+
+@app.route('/gallery')
+def gallery():
+    """Gallery page - view all saved stickers"""
+    # List all image files in uploads directory
+    images = []
+    if os.path.exists(UPLOADS_DIR):
+        images = [f for f in os.listdir(UPLOADS_DIR) if f.endswith(('.png', '.webp'))]
+        # Sort by filename descending (newest first - timestamps in filename)
+        images.sort(reverse=True)
+
+    return render_template('gallery.html', images=images)
+
+
+@app.route('/uploads/<filename>')
+def serve_upload(filename):
+    """Serve uploaded images with caching headers"""
+    response = send_from_directory(UPLOADS_DIR, filename)
+    # Cache for 1 day (files are immutable due to timestamp naming)
+    response.headers['Cache-Control'] = 'public, max-age=86400'
+    return response
 
 
 @app.route('/stream')
