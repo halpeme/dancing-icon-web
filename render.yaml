@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: dancing-icon-web
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: SUBMIT_PASSWORD
+        value: demo
+      - key: SECRET_KEY
+        generateValue: true

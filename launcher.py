@@ -8,6 +8,11 @@ import threading
 import time
 import urllib.request
 import urllib.error
+
+# Fix Unicode output on Windows (cp1252 can't encode box-drawing chars)
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 from pathlib import Path
 
 # Platform-specific keyboard input

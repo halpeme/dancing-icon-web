@@ -25,7 +25,10 @@
       "Bash(cmd //c:*)",
       "Bash(find:*)",
       "Bash(xargs:*)",
-      "Bash(python -c:*)"
+      "Bash(python -c:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(cd:*)",
+      "Bash(cd /c/Users/David/Codespace/dancing-icon-web && python3 -c \"\nwith open\\('templates/stage.html', 'r'\\) as f:\n    content = f.read\\(\\)\n    # Check basic balance\n    open_tags = content.count\\('<'\\)\n    close_tags = content.count\\('>'\\)\n    open_braces = content.count\\('{'\\)\n    close_braces = content.count\\('}'\\)\n    print\\(f'HTML tags: < {open_tags} > {close_tags}'\\)\n    print\\(f'Braces: {{ {open_braces} }} {close_braces}'\\)\n    print\\(f'Functions defined: {content.count\\(\\\\\"function \\\\\"\\)}'\\)\n    print\\(f'File size: {len\\(content\\)} bytes'\\)\n\" 2>&1)"
     ]
   }
 }

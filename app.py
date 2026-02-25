@@ -23,13 +23,12 @@ import random
 import queue
 import numpy as np
 from datetime import datetime
-from flask import Flask, render_template, request, Response, jsonify, send_from_directory, session
+from flask import Flask, render_template, request, Response, jsonify, send_from_directory
 from PIL import Image
 from rembg import remove, new_session
 import qrcode
 
 app = Flask(__name__)
-app.secret_key = 'dancing-sticker-secure-key-2026'  # For session management
 
 # Create uploads directory for saving processed stickers
 UPLOADS_DIR = 'uploads'
@@ -371,10 +370,16 @@ def toggle_sticker():
 
     filename = data['filename']
     action = data['action']
-    image_url = f"/uploads/{filename}"
+    source = data.get('source', 'uploads')
+
+    if source == 'images':
+        image_url = f"/images/{filename}"
+        filepath = os.path.join('images', filename)
+    else:
+        image_url = f"/uploads/{filename}"
+        filepath = os.path.join(UPLOADS_DIR, filename)
 
     # Verify file exists
-    filepath = os.path.join(UPLOADS_DIR, filename)
     if not os.path.exists(filepath):
         return jsonify({'error': 'File not found'}), 404
 
@@ -402,42 +407,13 @@ def toggle_sticker():
         return jsonify({'error': 'Invalid action. Use "activate" or "deactivate"'}), 400
 
 
-@app.route('/api/auth', methods=['POST'])
-def authenticate():
-    """Verify PIN code for gallery delete access
-
-    Request JSON:
-        pin: str - The PIN code (should be '1234')
-    """
-    data = request.get_json()
-    if not data or 'pin' not in data:
-        return jsonify({'error': 'Missing PIN'}), 400
-
-    pin = str(data['pin'])
-    if pin == '1234':
-        session['authenticated'] = True
-        return jsonify({'success': True})
-    else:
-        return jsonify({'error': 'Invalid PIN'}), 401
-
-
-@app.route('/api/check_auth')
-def check_auth():
-    """Check if current session is authenticated"""
-    return jsonify({'authenticated': session.get('authenticated', False)})
-
-
 @app.route('/api/delete_stickers', methods=['POST'])
 def delete_stickers():
-    """Delete stickers from gallery (requires authentication)
+    """Delete stickers from gallery
 
     Request JSON:
         filenames: list[str] - List of filenames to delete
     """
-    # Check authentication
-    if not session.get('authenticated', False):
-        return jsonify({'error': 'Not authenticated'}), 401
-
     data = request.get_json()
     if not data or 'filenames' not in data:
         return jsonify({'error': 'Missing filenames'}), 400
@@ -491,21 +467,32 @@ def delete_stickers():
 @app.route('/gallery')
 def gallery():
     """Gallery page - view all saved stickers"""
-    # List all image files in uploads directory
-    images = []
+    uploads = []
     if os.path.exists(UPLOADS_DIR):
-        images = [f for f in os.listdir(UPLOADS_DIR) if f.endswith(('.png', '.webp'))]
-        # Sort by filename descending (newest first - timestamps in filename)
-        images.sort(reverse=True)
+        uploads = [f for f in os.listdir(UPLOADS_DIR) if f.endswith(('.png', '.webp'))]
+        uploads.sort(reverse=True)
 
-    return render_template('gallery.html', images=images)
+    presets = []
+    images_dir = 'images'
+    if os.path.exists(images_dir):
+        presets = [f for f in os.listdir(images_dir) if f.endswith(('.png', '.webp', '.gif'))]
+        presets.sort()
+
+    return render_template('gallery.html', uploads=uploads, presets=presets)
 
 
 @app.route('/uploads/<filename>')
 def serve_upload(filename):
     """Serve uploaded images with caching headers"""
     response = send_from_directory(UPLOADS_DIR, filename)
-    # Cache for 1 day (files are immutable due to timestamp naming)
+    response.headers['Cache-Control'] = 'public, max-age=86400'
+    return response
+
+
+@app.route('/images/<filename>')
+def serve_image(filename):
+    """Serve preset images from the images directory"""
+    response = send_from_directory('images', filename)
     response.headers['Cache-Control'] = 'public, max-age=86400'
     return response
 
@@ -539,6 +526,16 @@ def stream():
             'Connection': 'keep-alive'
         }
     )
+
+
+@app.route('/race/start', methods=['POST'])
+def race_start():
+    """Broadcast race_start SSE event to all clients with a random winner."""
+    if len(stickers) < 2:
+        return jsonify({'error': 'Need at least 2 stickers'}), 400
+    winner_id = random.choice(stickers)['id']
+    broadcast({'type': 'race_start', 'winnerId': winner_id})
+    return jsonify({'ok': True, 'winnerId': winner_id})
 
 
 if __name__ == '__main__':

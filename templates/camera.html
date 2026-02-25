@@ -165,32 +165,12 @@
       text-align: center;
     }
 
-    /* Selection toggle (for manual mode) */
-    #selection-toggle {
-      width: 100%;
-      max-width: 400px;
-      margin-top: 20px;
-      display: none;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    #selection-toggle.visible {
-      display: flex;
-    }
-
-    #selection-toggle label {
-      font-size: 14px;
-      color: #aaa;
-      text-align: center;
-    }
-
-    /* Clear points button */
-    #clear-points-btn {
+    /* Undo button (for manual mode) */
+    #undo-btn {
       display: none;
     }
 
-    #clear-points-btn.visible {
+    #undo-btn.visible {
       display: flex;
     }
 
@@ -447,6 +427,7 @@
       height: 100%;
       cursor: crosshair;
       display: none;
+      touch-action: none; /* Prevent scrolling while painting */
     }
 
     #selection-canvas.visible {
@@ -540,34 +521,19 @@
     </div>
   </div>
 
-  <!-- Selection toggle (only for manual mode) -->
-  <div id="selection-toggle">
-    <label>Click on image to mark areas</label>
-    <div class="toggle-options">
-      <button class="toggle-option active" data-selection="keep">
-        <div>✅ Keep Area</div>
-        <span>Foreground</span>
-      </button>
-      <button class="toggle-option" data-selection="remove">
-        <div>❌ Remove Area</div>
-        <span>Background</span>
-      </button>
-    </div>
-  </div>
-
-  <!-- Clear points button -->
-  <button id="clear-points-btn" class="secondary-btn" style="margin-top: 12px;">
+  <!-- Undo button (for manual mode) -->
+  <button id="undo-btn" class="secondary-btn" style="margin-top: 12px;">
     <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
-      <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+      <path fill="currentColor" d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
     </svg>
-    Clear All Points
+    Undo
   </button>
 
   <!-- Manual mode instructions -->
   <div class="manual-instructions">
     <strong>How to use Manual Mode:</strong>
-    Select Keep or Remove, then click areas on the image.<br>
-    Green = Keep • Red = Remove
+    Paint over areas you want to remove.<br>
+    Swipe or drag to paint • Tap Undo to revert
   </div>
 
   <button id="process-btn">Remove Background</button>
@@ -600,9 +566,7 @@
     const modeOptions = document.querySelectorAll('#mode-toggle .toggle-option');
     const qualityToggle = document.getElementById('quality-toggle');
     const qualityOptions = document.querySelectorAll('#quality-toggle .toggle-option');
-    const selectionToggle = document.getElementById('selection-toggle');
-    const selectionOptions = document.querySelectorAll('#selection-toggle .toggle-option');
-    const clearPointsBtn = document.getElementById('clear-points-btn');
+    const undoBtn = document.getElementById('undo-btn');
     const manualInstructions = document.querySelector('.manual-instructions');
     const selectionCanvas = document.getElementById('selection-canvas');
     const processBtn = document.getElementById('process-btn');
@@ -620,10 +584,11 @@
     let rotation = 0;
     let selectedMode = 'auto'; // auto or manual
     let selectedModel = 'fast'; // fast or quality (for auto mode)
-    let currentSelection = 'keep'; // keep or remove (for manual mode)
-    let manualPoints = []; // [[y, x], ...]
-    let manualLabels = []; // [1, 2, ...] where 1=foreground, 2=background
+    let strokes = []; // Array of strokes, each stroke = [{x, y}, ...]
+    let isDrawing = false;
+    let currentStroke = [];
     let canvasContext = null;
+    const BRUSH_SIZE = 24;
 
     // Tap capture area to open camera
     captureArea.addEventListener('click', () => {
@@ -647,20 +612,19 @@
         // Show/hide toggles based on mode
         if (selectedMode === 'auto') {
           qualityToggle.classList.add('visible');
-          selectionToggle.classList.remove('visible');
-          clearPointsBtn.classList.remove('visible');
+          undoBtn.classList.remove('visible');
           manualInstructions.classList.remove('visible');
           selectionCanvas.classList.remove('visible');
-          // Clear manual selections
-          manualPoints = [];
-          manualLabels = [];
+          // Clear brush strokes
+          strokes = [];
+          currentStroke = [];
+          isDrawing = false;
           if (canvasContext) {
             canvasContext.clearRect(0, 0, selectionCanvas.width, selectionCanvas.height);
           }
         } else {
           qualityToggle.classList.remove('visible');
-          selectionToggle.classList.add('visible');
-          clearPointsBtn.classList.add('visible');
+          undoBtn.classList.add('visible');
           manualInstructions.classList.add('visible');
           selectionCanvas.classList.add('visible');
         }
@@ -676,14 +640,6 @@
       });
     });
 
-    // Selection toggle handlers (for manual mode)
-    selectionOptions.forEach(option => {
-      option.addEventListener('click', () => {
-        selectionOptions.forEach(opt => opt.classList.remove('active'));
-        option.classList.add('active');
-        currentSelection = option.dataset.selection;
-      });
-    });
 
     // Handle file selection (from camera or file upload)
     function handleFileSelection(e) {
@@ -713,8 +669,9 @@
       selectedFile = file;
       processedImage = null;
       rotation = 0;
-      manualPoints = [];
-      manualLabels = [];
+      strokes = [];
+      currentStroke = [];
+      isDrawing = false;
 
       // Show original preview
       const reader = new FileReader();
@@ -738,8 +695,7 @@
       if (selectedMode === 'auto') {
         qualityToggle.classList.add('visible');
       } else {
-        selectionToggle.classList.add('visible');
-        clearPointsBtn.classList.add('visible');
+        undoBtn.classList.add('visible');
         manualInstructions.classList.add('visible');
         selectionCanvas.classList.add('visible');
       }
@@ -752,84 +708,197 @@
     cameraInput.addEventListener('change', handleFileSelection);
     fileUpload.addEventListener('change', handleFileSelection);
 
-    // Canvas click handler for manual point selection
-    selectionCanvas.addEventListener('click', (e) => {
-      if (selectedMode !== 'manual' || !canvasContext) return;
+    // --- Brush painting handlers for manual mode ---
 
+    function getCanvasPos(e) {
       const rect = selectionCanvas.getBoundingClientRect();
-      const clickX = e.clientX - rect.left;
-      const clickY = e.clientY - rect.top;
+      if (e.touches) {
+        return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
+      }
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    }
 
-      // Calculate actual displayed image dimensions within the container
-      // (accounting for object-fit: contain padding)
+    function drawStrokeSegment(from, to) {
+      canvasContext.strokeStyle = 'rgba(255, 0, 0, 0.4)';
+      canvasContext.lineWidth = BRUSH_SIZE;
+      canvasContext.lineCap = 'round';
+      canvasContext.lineJoin = 'round';
+      canvasContext.beginPath();
+      canvasContext.moveTo(from.x, from.y);
+      canvasContext.lineTo(to.x, to.y);
+      canvasContext.stroke();
+    }
+
+    function redrawAllStrokes() {
+      if (!canvasContext) return;
+      canvasContext.clearRect(0, 0, selectionCanvas.width, selectionCanvas.height);
+      for (const stroke of strokes) {
+        if (stroke.length < 2) {
+          // Single dot
+          canvasContext.fillStyle = 'rgba(255, 0, 0, 0.4)';
+          canvasContext.beginPath();
+          canvasContext.arc(stroke[0].x, stroke[0].y, BRUSH_SIZE / 2, 0, 2 * Math.PI);
+          canvasContext.fill();
+          continue;
+        }
+        canvasContext.strokeStyle = 'rgba(255, 0, 0, 0.4)';
+        canvasContext.lineWidth = BRUSH_SIZE;
+        canvasContext.lineCap = 'round';
+        canvasContext.lineJoin = 'round';
+        canvasContext.beginPath();
+        canvasContext.moveTo(stroke[0].x, stroke[0].y);
+        for (let i = 1; i < stroke.length; i++) {
+          canvasContext.lineTo(stroke[i].x, stroke[i].y);
+        }
+        canvasContext.stroke();
+      }
+    }
+
+    function startDrawing(e) {
+      if (selectedMode !== 'manual' || !canvasContext) return;
+      e.preventDefault();
+      isDrawing = true;
+      const pos = getCanvasPos(e);
+      currentStroke = [pos];
+      // Draw initial dot
+      canvasContext.fillStyle = 'rgba(255, 0, 0, 0.4)';
+      canvasContext.beginPath();
+      canvasContext.arc(pos.x, pos.y, BRUSH_SIZE / 2, 0, 2 * Math.PI);
+      canvasContext.fill();
+    }
+
+    function continueDrawing(e) {
+      if (!isDrawing || !canvasContext) return;
+      e.preventDefault();
+      const pos = getCanvasPos(e);
+      const lastPos = currentStroke[currentStroke.length - 1];
+      currentStroke.push(pos);
+      drawStrokeSegment(lastPos, pos);
+    }
+
+    function stopDrawing(e) {
+      if (!isDrawing) return;
+      e.preventDefault();
+      isDrawing = false;
+      if (currentStroke.length > 0) {
+        strokes.push(currentStroke);
+        currentStroke = [];
+      }
+    }
+
+    // Mouse events
+    selectionCanvas.addEventListener('mousedown', startDrawing);
+    selectionCanvas.addEventListener('mousemove', continueDrawing);
+    selectionCanvas.addEventListener('mouseup', stopDrawing);
+    selectionCanvas.addEventListener('mouseleave', stopDrawing);
+
+    // Touch events
+    selectionCanvas.addEventListener('touchstart', startDrawing);
+    selectionCanvas.addEventListener('touchmove', continueDrawing);
+    selectionCanvas.addEventListener('touchend', stopDrawing);
+    selectionCanvas.addEventListener('touchcancel', stopDrawing);
+
+    // --- Point sampling from painted canvas ---
+
+    function samplePointsFromCanvas() {
+      if (!canvasContext) return { points: [], labels: [] };
+
+      const w = selectionCanvas.width;
+      const h = selectionCanvas.height;
+      const imageData = canvasContext.getImageData(0, 0, w, h);
+      const data = imageData.data;
+
+      // Calculate image display bounds (object-fit: contain)
       const imgNaturalRatio = originalPreview.naturalWidth / originalPreview.naturalHeight;
-      const containerRatio = rect.width / rect.height;
-
+      const containerRatio = w / h;
       let displayedWidth, displayedHeight, offsetX, offsetY;
-
       if (imgNaturalRatio > containerRatio) {
-        // Image is wider - will have vertical padding (pillarboxed)
-        displayedWidth = rect.width;
-        displayedHeight = rect.width / imgNaturalRatio;
+        displayedWidth = w;
+        displayedHeight = w / imgNaturalRatio;
         offsetX = 0;
-        offsetY = (rect.height - displayedHeight) / 2;
+        offsetY = (h - displayedHeight) / 2;
       } else {
-        // Image is taller - will have horizontal padding (letterboxed)
-        displayedWidth = rect.height * imgNaturalRatio;
-        displayedHeight = rect.height;
-        offsetX = (rect.width - displayedWidth) / 2;
+        displayedWidth = h * imgNaturalRatio;
+        displayedHeight = h;
+        offsetX = (w - displayedWidth) / 2;
         offsetY = 0;
       }
 
-      // Adjust click coordinates to account for padding
-      const adjustedX = clickX - offsetX;
-      const adjustedY = clickY - offsetY;
+      // Grid sample - ~20 cells per dimension
+      const gridStep = Math.max(Math.floor(Math.min(w, h) / 20), 8);
+      const paintedPoints = [];
+      const unpaintedPoints = [];
 
-      // Check if click is outside the actual image area (in padding)
-      if (adjustedX < 0 || adjustedX > displayedWidth || adjustedY < 0 || adjustedY > displayedHeight) {
-        return; // Ignore clicks in padding area
+      for (let gy = gridStep / 2; gy < h; gy += gridStep) {
+        for (let gx = gridStep / 2; gx < w; gx += gridStep) {
+          // Check if this point is within the image bounds
+          if (gx < offsetX || gx > offsetX + displayedWidth ||
+              gy < offsetY || gy > offsetY + displayedHeight) continue;
+
+          const idx = (Math.floor(gy) * w + Math.floor(gx)) * 4;
+          const r = data[idx];
+          const a = data[idx + 3];
+
+          // Painted = has red with some alpha
+          if (r > 100 && a > 30) {
+            paintedPoints.push({ cx: gx, cy: gy });
+          } else {
+            unpaintedPoints.push({ cx: gx, cy: gy });
+          }
+        }
       }
 
-      // Use current selection mode (keep or remove)
-      const isKeep = currentSelection === 'keep';
-      const label = isKeep ? 1 : 0;  // SAM expects: 1=foreground (keep), 0=background (remove)
+      // Cap remove points at ~30
+      let removePoints = paintedPoints;
+      if (removePoints.length > 30) {
+        const step = Math.ceil(removePoints.length / 30);
+        removePoints = removePoints.filter((_, i) => i % step === 0);
+      }
 
-      // Scale coordinates from displayed size to original image natural dimensions
+      // Pick 1 foreground point from unpainted area (center-most)
+      let keepPoint = null;
+      if (unpaintedPoints.length > 0) {
+        const centerX = offsetX + displayedWidth / 2;
+        const centerY = offsetY + displayedHeight / 2;
+        unpaintedPoints.sort((a, b) => {
+          const da = (a.cx - centerX) ** 2 + (a.cy - centerY) ** 2;
+          const db = (b.cx - centerX) ** 2 + (b.cy - centerY) ** 2;
+          return da - db;
+        });
+        keepPoint = unpaintedPoints[0];
+      }
+
+      // Convert canvas coords to image natural coords
       const scaleX = originalPreview.naturalWidth / displayedWidth;
       const scaleY = originalPreview.naturalHeight / displayedHeight;
-      const imgX = adjustedX * scaleX;
-      const imgY = adjustedY * scaleY;
 
-      // Store point in [y, x] format as required by rembg/SAM
-      manualPoints.push([imgY, imgX]);
-      manualLabels.push(label);
+      const points = [];
+      const labels = [];
 
-      // Draw dot on canvas at click position (use original click coordinates for display)
-      canvasContext.fillStyle = isKeep ? 'rgba(0, 255, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
-      canvasContext.beginPath();
-      canvasContext.arc(clickX, clickY, 8, 0, 2 * Math.PI);
-      canvasContext.fill();
-
-      // Draw outline
-      canvasContext.strokeStyle = 'white';
-      canvasContext.lineWidth = 2;
-      canvasContext.stroke();
-
-      // Draw number label
-      canvasContext.fillStyle = 'white';
-      canvasContext.font = 'bold 12px sans-serif';
-      canvasContext.textAlign = 'center';
-      canvasContext.textBaseline = 'middle';
-      canvasContext.fillText(manualPoints.length, clickX, clickY);
-    });
-
-    // Clear points button handler
-    clearPointsBtn.addEventListener('click', () => {
-      manualPoints = [];
-      manualLabels = [];
-      if (canvasContext) {
-        canvasContext.clearRect(0, 0, selectionCanvas.width, selectionCanvas.height);
+      // Add foreground point first (label=1)
+      if (keepPoint) {
+        const imgX = (keepPoint.cx - offsetX) * scaleX;
+        const imgY = (keepPoint.cy - offsetY) * scaleY;
+        points.push([imgY, imgX]); // [y, x] format for rembg
+        labels.push(1);
       }
+
+      // Add remove points (label=0)
+      for (const p of removePoints) {
+        const imgX = (p.cx - offsetX) * scaleX;
+        const imgY = (p.cy - offsetY) * scaleY;
+        points.push([imgY, imgX]);
+        labels.push(0);
+      }
+
+      return { points, labels };
+    }
+
+    // Undo button handler - remove last brush stroke
+    undoBtn.addEventListener('click', () => {
+      if (strokes.length === 0) return;
+      strokes.pop();
+      redrawAllStrokes();
       status.classList.remove('visible');
     });
 
@@ -867,10 +936,10 @@
     processBtn.addEventListener('click', async () => {
       if (!selectedFile) return;
 
-      // Validate manual mode has points
-      if (selectedMode === 'manual' && manualPoints.length === 0) {
+      // Validate manual mode has strokes
+      if (selectedMode === 'manual' && strokes.length === 0) {
         status.className = 'error visible';
-        status.textContent = 'Please select at least one area by clicking on the image';
+        status.textContent = 'Please paint over areas to remove first';
         return;
       }
 
@@ -878,7 +947,7 @@
       status.className = 'processing visible';
 
       if (selectedMode === 'manual') {
-        status.innerHTML = `<span class="spinner"></span>Processing ${manualPoints.length} selection(s)...`;
+        status.innerHTML = `<span class="spinner"></span>Processing painted area...`;
       } else {
         status.innerHTML = '<span class="spinner"></span>Removing background...';
       }
@@ -890,9 +959,13 @@
       if (selectedMode === 'auto') {
         formData.append('model', selectedModel); // Pass selected model for auto mode
       } else {
-        // Pass points and labels for manual mode
-        formData.append('points', JSON.stringify(manualPoints));
-        formData.append('labels', JSON.stringify(manualLabels));
+        // Sample points from painted canvas for SAM
+        const sampled = samplePointsFromCanvas();
+        formData.append('points', JSON.stringify(sampled.points));
+        formData.append('labels', JSON.stringify(sampled.labels));
+        // Send original image dimensions so server can scale correctly
+        formData.append('image_width', originalPreview.naturalWidth);
+        formData.append('image_height', originalPreview.naturalHeight);
       }
 
       try {
@@ -915,8 +988,7 @@
           captureArea.style.display = 'none';
           modeToggle.classList.remove('visible');
           qualityToggle.classList.remove('visible');
-          selectionToggle.classList.remove('visible');
-          clearPointsBtn.classList.remove('visible');
+          undoBtn.classList.remove('visible');
           manualInstructions.classList.remove('visible');
           selectionCanvas.classList.remove('visible');
           processBtn.classList.remove('visible');
@@ -988,8 +1060,9 @@
       selectedFile = null;
       processedImage = null;
       rotation = 0;
-      manualPoints = [];
-      manualLabels = [];
+      strokes = [];
+      currentStroke = [];
+      isDrawing = false;
       cameraInput.value = '';
       fileUpload.value = '';
       originalPreview.src = '';
@@ -998,8 +1071,7 @@
       captureArea.style.display = 'flex';
       modeToggle.classList.remove('visible');
       qualityToggle.classList.remove('visible');
-      selectionToggle.classList.remove('visible');
-      clearPointsBtn.classList.remove('visible');
+      undoBtn.classList.remove('visible');
       manualInstructions.classList.remove('visible');
       selectionCanvas.classList.remove('visible');
       if (canvasContext) {

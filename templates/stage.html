@@ -226,6 +226,125 @@
       filter: grayscale(0) blur(0);
       opacity: 1;
     }
+
+    /* ===== RACE FEATURE ===== */
+    #controls-panel {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      z-index: 998;
+      display: flex;
+      gap: 10px;
+      background: rgba(0,0,0,0.6);
+      padding: 12px 16px;
+      border-radius: 25px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    #start-race-btn {
+      padding: 10px 18px;
+      font-size: 14px;
+      background: linear-gradient(135deg, #FF6B6B, #FF8C42);
+      color: white;
+      border: none;
+      border-radius: 20px;
+      cursor: pointer;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-weight: 600;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 15px rgba(255,107,107,0.4);
+    }
+    #start-race-btn:hover:not(:disabled) { transform: scale(1.05); }
+    #start-race-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #race-countdown {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 120px;
+      font-weight: 900;
+      color: white;
+      text-shadow: 0 0 30px rgba(255,107,107,0.8), 0 0 60px rgba(255,200,0,0.6);
+      z-index: 9998;
+      pointer-events: none;
+      user-select: none;
+      font-family: Arial, sans-serif;
+      display: none;
+    }
+    #race-countdown.active { display: block; }
+    #finish-line {
+      position: fixed;
+      top: 0; right: 80px;
+      width: 4px; height: 100vh;
+      background: repeating-linear-gradient(45deg,#FFD700,#FFD700 10px,#fff 10px,#fff 20px);
+      z-index: 500;
+      pointer-events: none;
+      display: none;
+    }
+    body.race-active #finish-line { display: block; }
+    #race-track {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: repeating-linear-gradient(180deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 1px, transparent 1px, transparent 60px);
+      z-index: 1;
+      pointer-events: none;
+      display: none;
+    }
+    body.race-active #race-track { display: block; }
+    .sticker.winner img {
+      animation: winnerCelebration 600ms ease-in-out 4;
+      filter: drop-shadow(0 0 20px gold) drop-shadow(0 0 40px #FFD700) !important;
+    }
+    @keyframes winnerCelebration {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.4); }
+    }
+    .sticker.loser img {
+      transition: filter 300ms, opacity 300ms;
+      filter: grayscale(1) opacity(0.4) blur(1px) !important;
+    }
+    #winner-announcement {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 80px;
+      font-weight: 900;
+      color: gold;
+      text-shadow: 0 0 30px rgba(255,215,0,0.8);
+      z-index: 9997;
+      pointer-events: none;
+      user-select: none;
+      animation: announceWinner 2500ms ease-out forwards;
+    }
+    @keyframes announceWinner {
+      0%   { opacity: 0; transform: translate(-50%,-50%) scale(0.5); }
+      20%  { opacity: 1; transform: translate(-50%,-50%) scale(1.1); }
+      70%  { opacity: 1; transform: translate(-50%,-50%) scale(1.0); }
+      100% { opacity: 0; transform: translate(-50%,-50%) scale(0.9); }
+    }
+
+    #nav-links {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      z-index: 999;
+      display: flex;
+      gap: 10px;
+    }
+    #nav-links a {
+      display: inline-block;
+      padding: 10px 18px;
+      background: rgba(255, 255, 255, 0.85);
+      color: #080808;
+      text-decoration: none;
+      border-radius: 20px;
+      font-size: 13px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-weight: 500;
+      transition: background 0.2s ease;
+    }
+    #nav-links a:hover {
+      background: rgba(255, 255, 255, 0.95);
+    }
   </style>
 </head>
 <body>
@@ -249,6 +368,14 @@
   <div id="flash-overlay"></div>
   <div id="spotlight"></div>
   <canvas id="ripple-canvas"></canvas>
+
+  <!-- Race Feature UI -->
+  <div id="controls-panel">
+    <button id="start-race-btn">🏁 Start Race</button>
+  </div>
+  <div id="race-countdown"></div>
+  <div id="race-track"></div>
+  <div id="finish-line"></div>
 
   <script>
     // VERSION 11 - ALL OPTIMIZATIONS COMPLETE
@@ -279,6 +406,8 @@
       if (spotlight) spotlight.style.setProperty('display', 'none');
       const rippleCanvas = document.getElementById('ripple-canvas');
       if (rippleCanvas) rippleCanvas.style.setProperty('display', 'none');
+      const controlsPanel = document.getElementById('controls-panel');
+      if (controlsPanel) controlsPanel.style.setProperty('display', 'none');
 
       // CSS already handles this via template, but set as backup
       document.body.style.background = 'transparent';
@@ -314,6 +443,22 @@
       enableBackgroundPulse: false,  // Off by default
 
       enableParticles: false,      // Performance: off by default (not yet implemented)
+    };
+
+    // Race state — shared across all animation phases
+    const raceState = {
+      active: false,
+      phase: null,               // 'countdown' | 'racing' | 'celebration' | 'returning'
+      winnerId: null,
+      startTime: 0,
+      celebrationStart: 0,
+      celebrationDuration: 3000,
+      raceDuration: 6000,
+      returnDuration: 2000,
+      returnStartTime: 0,
+      savedPhysics: new Map(),
+      laneAssignments: new Map(),
+      returnFromPositions: new Map()
     };
 
     // Sparkle colors for the shower effect
@@ -780,6 +925,10 @@
 
     // Update physics for all stickers
     function updatePhysics(deltaTime, timestamp) {
+      if (raceState.active) {
+        updateRacePhysics(deltaTime, timestamp);
+        return;
+      }
       const stageWidth = window.innerWidth;
       const stageHeight = window.innerHeight;
       const dt = deltaTime / 1000; // Convert to seconds
@@ -1007,6 +1156,7 @@
 
     // Remove sticker from stage
     function removeSticker(id) {
+      if (raceState.active && id === raceState.winnerId) endRace();
       const sticker = stickers.get(id);
       if (sticker) {
         sticker.div.remove();
@@ -1043,6 +1193,7 @@
 
         switch (data.type) {
           case 'init':
+            if (raceState.active) endRace();
             // Clear existing and load initial stickers
             stickers.forEach((_, id) => removeSticker(id));
             data.stickers.forEach(s => addSticker(s));
@@ -1054,6 +1205,10 @@
 
           case 'remove':
             removeSticker(data.id);
+            break;
+
+          case 'race_start':
+            beginRaceWithWinner(data.winnerId);
             break;
         }
       };
@@ -1077,10 +1232,172 @@
         : 'Hide QR Code';
     });
 
+    // ===== RACE FEATURE =====
+
+    function startRace() {
+      if (stickers.size < 2) {
+        const msg = document.createElement('div');
+        msg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);color:#fff;padding:20px 32px;border-radius:16px;font-size:22px;z-index:9999;pointer-events:none';
+        msg.textContent = 'Need at least 2 stickers!';
+        document.body.appendChild(msg);
+        setTimeout(() => msg.remove(), 2000);
+        return;
+      }
+      if (raceState.active) return;
+      document.getElementById('start-race-btn').disabled = true;
+      fetch('/race/start', { method: 'POST' })
+        .catch(() => { document.getElementById('start-race-btn').disabled = false; });
+    }
+
+    function beginRaceWithWinner(winnerId) {
+      if (raceState.active) return;
+      raceState.active = true;
+      raceState.phase = 'countdown';
+      raceState.winnerId = winnerId;
+      raceState.laneAssignments.clear();
+      raceState.savedPhysics.clear();
+
+      const laneHeight = window.innerHeight / stickers.size;
+      let laneIndex = 0;
+      for (const [id, sticker] of stickers) {
+        const p = sticker.physics;
+        raceState.savedPhysics.set(id, {
+          x: p.x, y: p.y, vx: p.vx, vy: p.vy,
+          danceRotation: p.danceRotation,
+          danceTranslateX: p.danceTranslateX,
+          danceTranslateY: p.danceTranslateY,
+          danceScale: p.danceScale,
+          danceSkewX: p.danceSkewX,
+          isSpinning: p.isSpinning,
+          currentYRotation: p.currentYRotation
+        });
+        const isWinner = id === winnerId;
+        raceState.laneAssignments.set(id, {
+          laneIndex,
+          laneY: (laneIndex + 0.5) * laneHeight,
+          speed: isWinner ? randomRange(680, 750) : randomRange(480, 660)
+        });
+        laneIndex++;
+      }
+
+      document.body.classList.add('race-active');
+      showCountdown();
+    }
+
+    function showCountdown() {
+      const el = document.getElementById('race-countdown');
+      el.classList.add('active');
+      const steps = ['3', '2', '1', 'GO!'];
+      let i = 0;
+      const tick = () => {
+        el.textContent = steps[i++];
+        if (i < steps.length) setTimeout(tick, 800);
+        else setTimeout(() => { el.classList.remove('active'); el.textContent = ''; beginRacingPhase(); }, 800);
+      };
+      tick();
+    }
+
+    function beginRacingPhase() {
+      raceState.phase = 'racing';
+      raceState.startTime = performance.now();
+      for (const [id] of stickers) {
+        const el = document.getElementById('sticker-' + id);
+        if (el) el.classList.add('racing');
+      }
+    }
+
+    function updateRacePhysics(deltaTime, timestamp) {
+      const dt = deltaTime / 1000;
+      if (raceState.phase === 'racing') {
+        const finishX = window.innerWidth - 80;
+        let finished = false;
+        for (const [id, sticker] of stickers) {
+          const lane = raceState.laneAssignments.get(id);
+          if (!lane) continue;
+          const p = sticker.physics;
+          p.x += lane.speed * dt;
+          p.y = lane.laneY - 80 + Math.sin(timestamp * 0.003 + lane.laneIndex) * 10;
+          p.danceRotation = Math.sin(timestamp * 0.004 + lane.laneIndex) * 15;
+          if (!finished && id === raceState.winnerId && p.x + 80 >= finishX) {
+            finished = true;
+            triggerRaceFinish(timestamp);
+          }
+        }
+        if (!finished && performance.now() - raceState.startTime > raceState.raceDuration) {
+          triggerRaceFinish(timestamp);
+        }
+      } else if (raceState.phase === 'celebration') {
+        if (performance.now() - raceState.celebrationStart > raceState.celebrationDuration) {
+          raceState.phase = 'returning';
+          raceState.returnStartTime = performance.now();
+          raceState.returnFromPositions.clear();
+          for (const [id, sticker] of stickers) {
+            raceState.returnFromPositions.set(id, { x: sticker.physics.x, y: sticker.physics.y });
+          }
+        }
+      } else if (raceState.phase === 'returning') {
+        const t = Math.min((performance.now() - raceState.returnStartTime) / raceState.returnDuration, 1);
+        const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+        for (const [id, sticker] of stickers) {
+          const saved = raceState.savedPhysics.get(id);
+          const from = raceState.returnFromPositions.get(id);
+          if (!saved || !from) continue;
+          sticker.physics.x = from.x + (saved.x - from.x) * ease;
+          sticker.physics.y = from.y + (saved.y - from.y) * ease;
+        }
+        if (t >= 1) endRace();
+      }
+    }
+
+    function triggerRaceFinish(timestamp) {
+      raceState.phase = 'celebration';
+      raceState.celebrationStart = performance.now();
+      for (const [id, sticker] of stickers) {
+        if (id === raceState.winnerId) sticker.div.classList.add('winner');
+        else sticker.div.classList.add('loser');
+      }
+      triggerFlash();
+      triggerShake(1.5);
+      createRipple(window.innerWidth - 80, window.innerHeight / 2);
+      const ann = document.createElement('div');
+      ann.id = 'winner-announcement';
+      ann.textContent = '🏆 WINNER!';
+      document.body.appendChild(ann);
+      setTimeout(() => ann.remove(), 2500);
+    }
+
+    function endRace() {
+      raceState.active = false;
+      raceState.phase = null;
+      raceState.winnerId = null;
+      for (const [id, sticker] of stickers) {
+        sticker.div.classList.remove('racing', 'winner', 'loser');
+        const saved = raceState.savedPhysics.get(id);
+        if (saved) {
+          Object.assign(sticker.physics, saved);
+        }
+      }
+      document.body.classList.remove('race-active');
+      raceState.savedPhysics.clear();
+      raceState.laneAssignments.clear();
+      raceState.returnFromPositions.clear();
+      const btn = document.getElementById('start-race-btn');
+      if (btn) btn.disabled = false;
+    }
+
+    document.getElementById('start-race-btn').addEventListener('click', startRace);
+
     // Start
     audioSystem.init();
     connect();
     requestAnimationFrame(animationLoop);
   </script>
+
+  {% if not overlay_mode %}
+  <nav id="nav-links">
+    <a href="/camera">Camera</a>
+    <a href="/gallery">Gallery</a>
+  </nav>
+  {% endif %}
 </body>
 </html>

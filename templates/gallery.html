@@ -130,6 +130,73 @@
             font-size: 0.9rem;
         }
 
+        .size-control {
+            display: none;
+            margin-top: 10px;
+            padding: 8px;
+            background: #f3f4f6;
+            border-radius: 6px;
+        }
+
+        .gallery-item.active .size-control {
+            display: block;
+        }
+
+        .size-control label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 6px;
+        }
+
+        .size-control-input {
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            outline: none;
+            -webkit-appearance: none;
+            background: #d0d0d0;
+            cursor: pointer;
+        }
+
+        .size-control-input::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .size-control-input::-webkit-slider-thumb:hover {
+            background: #5a67d8;
+        }
+
+        .size-control-input::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            border: none;
+            transition: background 0.2s;
+        }
+
+        .size-control-input::-moz-range-thumb:hover {
+            background: #5a67d8;
+        }
+
+        .size-value {
+            display: block;
+            font-size: 0.75rem;
+            color: #666;
+            text-align: center;
+            margin-top: 4px;
+        }
+
         .toggle-btn.activate {
             background-color: #22c55e;
             color: white;
@@ -190,89 +257,6 @@
         .empty-state p {
             font-size: 1.1rem;
             opacity: 0.7;
-        }
-
-        /* PIN Modal */
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.7);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .modal.active {
-            display: flex;
-        }
-
-        .modal-content {
-            background: white;
-            padding: 40px;
-            border-radius: 16px;
-            text-align: center;
-            max-width: 400px;
-            width: 90%;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-        }
-
-        .modal-content h2 {
-            margin-bottom: 10px;
-            color: #333;
-        }
-
-        .modal-content p {
-            margin-bottom: 20px;
-            color: #666;
-        }
-
-        .pin-input {
-            width: 100%;
-            padding: 15px;
-            font-size: 1.5rem;
-            text-align: center;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            letter-spacing: 10px;
-        }
-
-        .pin-input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .modal-btn {
-            width: 100%;
-            padding: 15px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1.1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .modal-btn:hover {
-            background: #5a67d8;
-        }
-
-        .modal-btn:disabled {
-            background: #e5e7eb;
-            color: #9ca3af;
-            cursor: not-allowed;
-        }
-
-        .error-message {
-            color: #ef4444;
-            margin-top: 10px;
-            font-size: 0.9rem;
         }
 
         /* Selection checkbox */
@@ -345,17 +329,6 @@
     </style>
 </head>
 <body>
-    <!-- PIN Authentication Modal -->
-    <div class="modal" id="pinModal">
-        <div class="modal-content">
-            <h2>🔒 Authentication Required</h2>
-            <p>Enter PIN to access delete functionality</p>
-            <input type="password" class="pin-input" id="pinInput" placeholder="••••" maxlength="4" inputmode="numeric">
-            <button class="modal-btn" id="submitPin">Unlock</button>
-            <div class="error-message" id="pinError"></div>
-        </div>
-    </div>
-
     <div class="container">
         <header>
             <h1>Sticker Gallery</h1>
@@ -366,18 +339,44 @@
             </div>
         </header>
 
-        {% if images %}
+        {% if presets %}
+            <h2 style="color:white; margin-bottom: 16px; text-shadow: 1px 1px 3px rgba(0,0,0,0.3);">Preset Stickers</h2>
+            <div class="gallery" style="margin-bottom: 40px;">
+                {% for image in presets %}
+                <div class="gallery-item inactive" data-filename="{{ image }}" data-source="images" onclick="selectSticker(event, '{{ image }}', 'images')">
+                    <span class="status-badge inactive">Preset</span>
+                    <div class="image-wrapper">
+                        <img src="/images/{{ image }}" alt="Sticker">
+                    </div>
+                    <button class="toggle-btn activate" onclick="event.stopPropagation(); toggleSticker('{{ image }}', 'activate', 'images')">
+                        Activate
+                    </button>
+                    <div class="size-control">
+                        <label>Size: <span class="size-value">1.0x</span></label>
+                        <input type="range" class="size-control-input" min="0.25" max="3.0" step="0.25" value="1.0" onchange="resizeSticker('{{ image }}', 'images', this.value)">
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% if uploads %}
+            <h2 style="color:white; margin-bottom: 16px; text-shadow: 1px 1px 3px rgba(0,0,0,0.3);">Uploaded Stickers</h2>
             <div class="gallery">
-                {% for image in images %}
-                <div class="gallery-item inactive" data-filename="{{ image }}" onclick="selectSticker(event, '{{ image }}')">
-                    <input type="checkbox" class="select-checkbox" data-filename="{{ image }}" onclick="event.stopPropagation(); selectSticker(event, '{{ image }}')">
+                {% for image in uploads %}
+                <div class="gallery-item inactive" data-filename="{{ image }}" data-source="uploads" onclick="selectSticker(event, '{{ image }}', 'uploads')">
+                    <input type="checkbox" class="select-checkbox" data-filename="{{ image }}" onclick="event.stopPropagation(); selectSticker(event, '{{ image }}', 'uploads')">
                     <span class="status-badge inactive">Saved</span>
                     <div class="image-wrapper">
                         <img src="/uploads/{{ image }}" alt="Sticker">
                     </div>
-                    <button class="toggle-btn activate" onclick="event.stopPropagation(); toggleSticker('{{ image }}', 'activate')">
+                    <button class="toggle-btn activate" onclick="event.stopPropagation(); toggleSticker('{{ image }}', 'activate', 'uploads')">
                         Activate
                     </button>
+                    <div class="size-control">
+                        <label>Size: <span class="size-value">1.0x</span></label>
+                        <input type="range" class="size-control-input" min="0.25" max="3.0" step="0.25" value="1.0" onchange="resizeSticker('{{ image }}', 'uploads', this.value)">
+                    </div>
                 </div>
                 {% endfor %}
             </div>
@@ -386,7 +385,9 @@
             <button class="delete-btn" id="deleteBtn" onclick="deleteSelected()">
                 Delete <span id="deleteCount">0</span> selected
             </button>
-        {% else %}
+        {% endif %}
+
+        {% if not presets and not uploads %}
             <div class="empty-state">
                 <h2>No stickers yet</h2>
                 <p>Submit your first sticker from the camera page!</p>
@@ -395,86 +396,35 @@
     </div>
 
     <script>
-        // Track active stickers
-        let activeStickers = new Set();
+        // Track active stickers with their scale values
+        let activeStickers = new Map(); // Map of filename -> { scale }
         let eventSource = null;
-        let selectedStickers = new Set();
-        let isAuthenticated = false;
-
-        // Check authentication status
-        async function checkAuth() {
-            try {
-                const response = await fetch('/api/check_auth');
-                const data = await response.json();
-                isAuthenticated = data.authenticated;
-
-                if (!isAuthenticated) {
-                    document.getElementById('pinModal').classList.add('active');
-                }
-            } catch (error) {
-                console.error('Auth check error:', error);
-            }
-        }
-
-        // Handle PIN submission
-        document.getElementById('submitPin').addEventListener('click', async () => {
-            const pin = document.getElementById('pinInput').value;
-            const errorEl = document.getElementById('pinError');
-            const submitBtn = document.getElementById('submitPin');
-
-            if (!pin || pin.length !== 4) {
-                errorEl.textContent = 'Please enter a 4-digit PIN';
-                return;
-            }
-
-            submitBtn.disabled = true;
-            errorEl.textContent = '';
-
-            try {
-                const response = await fetch('/api/auth', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pin })
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    isAuthenticated = true;
-                    document.getElementById('pinModal').classList.remove('active');
-                } else {
-                    errorEl.textContent = data.error || 'Invalid PIN';
-                    document.getElementById('pinInput').value = '';
-                }
-            } catch (error) {
-                errorEl.textContent = 'Authentication failed';
-            } finally {
-                submitBtn.disabled = false;
-            }
-        });
-
-        // Allow Enter key in PIN input
-        document.getElementById('pinInput').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                document.getElementById('submitPin').click();
-            }
-        });
+        let selectedStickers = new Set(); // filenames of uploads selected for delete
 
         // Fetch initial active stickers
         async function loadActiveStickers() {
             try {
                 const response = await fetch('/api/active_stickers');
                 const data = await response.json();
-                activeStickers = new Set(data.active);
+                activeStickers.clear();
+                // Handle both old format (strings) and new format (objects with scale)
+                data.active.forEach(item => {
+                    if (typeof item === 'string') {
+                        activeStickers.set(item, { scale: 1.0 });
+                    } else {
+                        activeStickers.set(item.filename, { scale: item.scale || 1.0 });
+                    }
+                });
                 updateGalleryUI();
             } catch (error) {
                 console.error('Failed to load active stickers:', error);
             }
         }
 
-        // Select/deselect sticker
-        function selectSticker(event, filename) {
-            const item = document.querySelector(`.gallery-item[data-filename="${filename}"]`);
+        // Select/deselect sticker (only uploads can be selected for deletion)
+        function selectSticker(event, filename, source) {
+            if (source !== 'uploads') return;
+            const item = document.querySelector(`.gallery-item[data-filename="${filename}"][data-source="uploads"]`);
             const checkbox = item.querySelector('.select-checkbox');
 
             if (selectedStickers.has(filename)) {
@@ -534,7 +484,9 @@
                             setTimeout(() => item.remove(), 300);
                         }
                         selectedStickers.delete(filename);
-                        activeStickers.delete(filename);
+                        if (activeStickers.has(filename)) {
+                            activeStickers.delete(filename);
+                        }
                     });
 
                     // Show errors if any
@@ -565,9 +517,13 @@
         function updateGalleryUI() {
             document.querySelectorAll('.gallery-item').forEach(item => {
                 const filename = item.dataset.filename;
+                const source = item.dataset.source;
                 const isActive = activeStickers.has(filename);
                 const badge = item.querySelector('.status-badge');
                 const button = item.querySelector('.toggle-btn');
+                const sizeControl = item.querySelector('.size-control');
+                const sizeInput = item.querySelector('.size-control-input');
+                const sizeValue = item.querySelector('.size-value');
 
                 if (isActive) {
                     item.classList.remove('inactive');
@@ -578,31 +534,37 @@
                     button.classList.remove('activate');
                     button.classList.add('deactivate');
                     button.textContent = 'Deactivate';
-                    button.onclick = (e) => { e.stopPropagation(); toggleSticker(filename, 'deactivate'); };
+                    button.onclick = (e) => { e.stopPropagation(); toggleSticker(filename, 'deactivate', source); };
+
+                    // Update slider with current scale
+                    const stickerData = activeStickers.get(filename);
+                    const currentScale = stickerData.scale || 1.0;
+                    sizeInput.value = currentScale;
+                    sizeValue.textContent = currentScale.toFixed(2) + 'x';
                 } else {
                     item.classList.remove('active');
                     item.classList.add('inactive');
                     badge.classList.remove('active');
                     badge.classList.add('inactive');
-                    badge.textContent = 'Saved';
+                    badge.textContent = source === 'images' ? 'Preset' : 'Saved';
                     button.classList.remove('deactivate');
                     button.classList.add('activate');
                     button.textContent = 'Activate';
-                    button.onclick = (e) => { e.stopPropagation(); toggleSticker(filename, 'activate'); };
+                    button.onclick = (e) => { e.stopPropagation(); toggleSticker(filename, 'activate', source); };
                 }
             });
         }
 
         // Toggle sticker activation
-        async function toggleSticker(filename, action) {
-            const button = document.querySelector(`[data-filename="${filename}"] .toggle-btn`);
+        async function toggleSticker(filename, action, source) {
+            const button = document.querySelector(`[data-filename="${filename}"][data-source="${source}"] .toggle-btn`);
             button.disabled = true;
 
             try {
                 const response = await fetch('/api/toggle_sticker', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filename, action })
+                    body: JSON.stringify({ filename, action, source })
                 });
 
                 const data = await response.json();
@@ -610,7 +572,7 @@
                 if (response.ok) {
                     // Update will come through SSE, but update immediately for responsiveness
                     if (action === 'activate') {
-                        activeStickers.add(filename);
+                        activeStickers.set(filename, { scale: 1.0 });
                     } else {
                         activeStickers.delete(filename);
                     }
@@ -638,17 +600,20 @@
                     activeStickers.clear();
                     data.stickers.forEach(sticker => {
                         const filename = sticker.image.split('/').pop();
-                        activeStickers.add(filename);
+                        activeStickers.set(filename, { scale: sticker.scale || 1.0 });
                     });
                     updateGalleryUI();
                 } else if (data.type === 'add') {
                     // Sticker activated
                     const filename = data.sticker.image.split('/').pop();
-                    activeStickers.add(filename);
+                    activeStickers.set(filename, { scale: data.sticker.scale || 1.0 });
                     updateGalleryUI();
                 } else if (data.type === 'remove') {
                     // Find and remove by sticker ID (need to match against current active list)
                     // Since we don't have ID->filename mapping, reload active list
+                    loadActiveStickers();
+                } else if (data.type === 'resize') {
+                    // Update scale for active sticker
                     loadActiveStickers();
                 }
             };
@@ -661,8 +626,33 @@
             };
         }
 
+        // Resize a sticker on the stage
+        async function resizeSticker(filename, source, scale) {
+            try {
+                const response = await fetch('/api/resize_sticker', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename, source, scale: parseFloat(scale) })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Update local state
+                    const stickerData = activeStickers.get(filename);
+                    if (stickerData) {
+                        stickerData.scale = parseFloat(scale);
+                        updateGalleryUI();
+                    }
+                } else {
+                    console.error('Resize failed:', data.error);
+                }
+            } catch (error) {
+                console.error('Resize error:', error);
+            }
+        }
+
         // Initialize on page load
-        checkAuth();
         loadActiveStickers();
         connectSSE();
     </script>
