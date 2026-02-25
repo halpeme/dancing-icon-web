@@ -448,14 +448,17 @@
     // Race state — shared across all animation phases
     const raceState = {
       active: false,
-      phase: null,               // 'countdown' | 'racing' | 'celebration' | 'returning'
+      phase: null,               // 'lining-up' | 'countdown' | 'racing' | 'celebration' | 'returning'
       winnerId: null,
       startTime: 0,
       celebrationStart: 0,
       celebrationDuration: 3000,
-      raceDuration: 6000,
+      raceDuration: 8000,
       returnDuration: 2000,
       returnStartTime: 0,
+      lineupStartTime: 0,
+      lineupDuration: 1200,
+      lineupFromPositions: new Map(),
       savedPhysics: new Map(),
       laneAssignments: new Map(),
       returnFromPositions: new Map()
@@ -1252,7 +1255,7 @@
     function beginRaceWithWinner(winnerId) {
       if (raceState.active) return;
       raceState.active = true;
-      raceState.phase = 'countdown';
+      raceState.phase = 'lining-up';
       raceState.winnerId = winnerId;
       raceState.laneAssignments.clear();
       raceState.savedPhysics.clear();
@@ -1275,13 +1278,23 @@
         raceState.laneAssignments.set(id, {
           laneIndex,
           laneY: (laneIndex + 0.5) * laneHeight,
-          speed: isWinner ? randomRange(680, 750) : randomRange(480, 660)
+          baseSpeed: isWinner ? randomRange(560, 620) : randomRange(480, 580),
+          speedFreq: randomRange(0.0008, 0.0025),   // oscillation frequency
+          speedPhase: Math.random() * Math.PI * 2,  // random phase offset
+          speedAmp: randomRange(80, 180)             // speed variance amplitude
         });
         laneIndex++;
       }
 
       document.body.classList.add('race-active');
-      showCountdown();
+
+      // Record current positions for lineup animation
+      raceState.lineupFromPositions.clear();
+      for (const [id, sticker] of stickers) {
+        raceState.lineupFromPositions.set(id, { x: sticker.physics.x, y: sticker.physics.y });
+      }
+      raceState.phase = 'lining-up';
+      raceState.lineupStartTime = null;   // set on first frame via timestamp
     }
 
     function showCountdown() {
@@ -1308,14 +1321,39 @@
 
     function updateRacePhysics(deltaTime, timestamp) {
       const dt = deltaTime / 1000;
-      if (raceState.phase === 'racing') {
+      if (raceState.phase === 'lining-up') {
+        if (raceState.lineupStartTime === null) raceState.lineupStartTime = timestamp;
+        const t = Math.min((timestamp - raceState.lineupStartTime) / raceState.lineupDuration, 1);
+        const ease = t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2; // easeInOutCubic
+        const startX = 20; // left edge start position
+        for (const [id, sticker] of stickers) {
+          const lane = raceState.laneAssignments.get(id);
+          const from = raceState.lineupFromPositions.get(id);
+          if (!lane || !from) continue;
+          sticker.physics.x = from.x + (startX - from.x) * ease;
+          sticker.physics.y = from.y + (lane.laneY - 80 - from.y) * ease;
+        }
+        if (t >= 1) {
+          // Snap to start positions and begin countdown
+          for (const [id, sticker] of stickers) {
+            const lane = raceState.laneAssignments.get(id);
+            if (!lane) continue;
+            sticker.physics.x = 20;
+            sticker.physics.y = lane.laneY - 80;
+          }
+          raceState.phase = 'countdown';
+          showCountdown();
+        }
+      } else if (raceState.phase === 'racing') {
         const finishX = window.innerWidth - 80;
         let finished = false;
         for (const [id, sticker] of stickers) {
           const lane = raceState.laneAssignments.get(id);
           if (!lane) continue;
           const p = sticker.physics;
-          p.x += lane.speed * dt;
+          // Variable speed: base + sinusoidal fluctuation
+          const currentSpeed = lane.baseSpeed + Math.sin(timestamp * lane.speedFreq + lane.speedPhase) * lane.speedAmp;
+          p.x += Math.max(currentSpeed, 80) * dt;
           p.y = lane.laneY - 80 + Math.sin(timestamp * 0.003 + lane.laneIndex) * 10;
           p.danceRotation = Math.sin(timestamp * 0.004 + lane.laneIndex) * 15;
           if (!finished && id === raceState.winnerId && p.x + 80 >= finishX) {
@@ -1381,6 +1419,7 @@
       raceState.savedPhysics.clear();
       raceState.laneAssignments.clear();
       raceState.returnFromPositions.clear();
+      raceState.lineupFromPositions.clear();
       const btn = document.getElementById('start-race-btn');
       if (btn) btn.disabled = false;
     }
