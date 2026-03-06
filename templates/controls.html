@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Dancing Sticker Controls</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #111;
+      color: #eee;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+      gap: 32px;
+    }
+
+    h1 {
+      font-size: 2rem;
+      letter-spacing: 0.05em;
+      color: #fff;
+    }
+
+    .open-stage-btn {
+      display: inline-block;
+      padding: 18px 48px;
+      background: linear-gradient(135deg, #ff6b35, #f7c59f);
+      color: #111;
+      font-size: 1.3rem;
+      font-weight: 700;
+      border-radius: 12px;
+      text-decoration: none;
+      box-shadow: 0 4px 24px rgba(255,107,53,0.4);
+      transition: transform 0.15s, box-shadow 0.15s;
+      letter-spacing: 0.03em;
+    }
+    .open-stage-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(255,107,53,0.6);
+    }
+
+    .cards {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      justify-content: center;
+      width: 100%;
+      max-width: 900px;
+    }
+
+    .card {
+      background: #1e1e1e;
+      border-radius: 16px;
+      padding: 28px 32px;
+      flex: 1 1 260px;
+      max-width: 340px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.4);
+    }
+
+    .card h2 {
+      font-size: 1.1rem;
+      color: #aaa;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .qr-img {
+      width: 200px;
+      height: 200px;
+      border-radius: 8px;
+      background: white;
+      padding: 8px;
+    }
+
+    .camera-url {
+      font-size: 0.85rem;
+      color: #888;
+      word-break: break-all;
+      text-align: center;
+    }
+
+    .page-nav {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 999;
+    }
+    .page-nav-btn {
+      padding: 8px 16px;
+      background: rgba(0,0,0,0.55);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+      transition: background 0.2s;
+    }
+    .page-nav-btn:hover { background: rgba(0,0,0,0.75); }
+    .page-nav-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      background: rgba(20,20,20,0.95);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 12px;
+      overflow: hidden;
+      min-width: 150px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
+    }
+    .page-nav.open .page-nav-menu { display: block; }
+    .page-nav-menu a {
+      display: block;
+      padding: 11px 18px;
+      color: #eee;
+      text-decoration: none;
+      font-size: 14px;
+      transition: background 0.15s;
+    }
+    .page-nav-menu a:hover { background: rgba(255,255,255,0.1); }
+
+    #start-race-btn {
+      padding: 14px 32px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #FF6B6B, #FF8C42);
+      color: white;
+      border: none;
+      border-radius: 20px;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(255,107,107,0.4);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    #start-race-btn:hover:not(:disabled) { transform: scale(1.05); }
+    #start-race-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .effect-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+    }
+
+    .effect-btn {
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 2px solid rgba(255,255,255,0.2);
+      background: rgba(20,20,20,0.8);
+      color: #aaa;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all 0.25s;
+      white-space: nowrap;
+    }
+
+    .effect-btn:hover {
+      border-color: rgba(255,255,255,0.4);
+      color: #ddd;
+    }
+
+    .effect-btn.active {
+      background: linear-gradient(135deg, #ff00ff, #ff1493);
+      color: white;
+      border-color: rgba(255,20,147,0.8);
+      box-shadow: 0 0 20px rgba(255,20,147,0.6), inset 0 0 10px rgba(255,255,255,0.2);
+      animation: effectPulse 2s ease-in-out infinite;
+    }
+
+    @keyframes effectPulse {
+      0%, 100% { box-shadow: 0 0 20px rgba(255,20,147,0.6), inset 0 0 10px rgba(255,255,255,0.2); }
+      50% { box-shadow: 0 0 30px rgba(255,20,147,0.8), inset 0 0 15px rgba(255,255,255,0.3); }
+    }
+
+    .strobe-warning {
+      font-size: 11px;
+      color: #ff9800;
+      text-align: center;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎪 Dancing Sticker Controls</h1>
+
+  <a href="/stage" target="_blank" class="open-stage-btn">🎭 Open Stage</a>
+
+  <div class="cards">
+    <div class="card">
+      <h2>Scan to Add Stickers</h2>
+      <img class="qr-img" src="data:image/png;base64,{{ qr_base64 }}" alt="QR Code">
+      <p class="camera-url">{{ camera_url }}</p>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h2>Race</h2>
+      <button id="start-race-btn" onclick="startRace()">🏁 Start Race</button>
+      <p id="race-msg" style="font-size:0.85rem;color:#888;min-height:1.2em;text-align:center"></p>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h2>Effects</h2>
+      <div class="effect-buttons" id="effect-buttons-container"></div>
+      <div class="strobe-warning" id="strobe-warning" style="display:none;">
+        ⚠️ Strobe warning: May cause photosensitivity issues
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function startRace() {
+      const btn = document.getElementById('start-race-btn');
+      const msg = document.getElementById('race-msg');
+      btn.disabled = true;
+      msg.textContent = 'Starting race on stage…';
+      fetch('/race/start', { method: 'POST' })
+        .then(r => r.ok ? msg.textContent = 'Race started!' : msg.textContent = 'Error starting race')
+        .catch(() => msg.textContent = 'Could not reach server')
+        .finally(() => setTimeout(() => { btn.disabled = false; msg.textContent = ''; }, 3000));
+    }
+
+    // ===== PSYCHEDELIC EFFECTS =====
+    const EFFECTS = [
+      { name: 'rainbow', label: 'Rainbow', emoji: '🌈' },
+      { name: 'strobe', label: 'Strobe', emoji: '💡' },
+      { name: 'disco_spin', label: 'Disco Spin', emoji: '🔄' },
+      { name: 'size_pulse', label: 'Size Pulse', emoji: '📏' },
+      { name: 'gravity_bounce', label: 'Bounce', emoji: '⬆️' },
+      { name: 'motion_trail', label: 'Motion Trail', emoji: '💨' }
+    ];
+
+    const effectStates = {};
+    let eventSource = null;
+
+    function renderEffectButtons() {
+      const container = document.getElementById('effect-buttons-container');
+      container.innerHTML = '';
+
+      EFFECTS.forEach(effect => {
+        const btn = document.createElement('button');
+        btn.className = 'effect-btn';
+        btn.dataset.effect = effect.name;
+        if (effectStates[effect.name]) {
+          btn.classList.add('active');
+        }
+        btn.textContent = `${effect.emoji} ${effect.label}`;
+        btn.onclick = () => toggleEffect(effect.name);
+        container.appendChild(btn);
+      });
+    }
+
+    function toggleEffect(name) {
+      fetch(`/effect/${name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      })
+      .catch(err => console.error(`Error toggling effect ${name}:`, err));
+    }
+
+    function updateEffectButton(name, isActive) {
+      effectStates[name] = isActive;
+      const btn = document.querySelector(`.effect-btn[data-effect="${name}"]`);
+      if (btn) {
+        if (isActive) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      }
+
+      // Show strobe warning when strobe is active
+      const strobeWarning = document.getElementById('strobe-warning');
+      if (effectStates.strobe) {
+        strobeWarning.style.display = 'block';
+      } else {
+        strobeWarning.style.display = 'none';
+      }
+    }
+
+    // Fetch initial effect states
+    fetch('/api/effects')
+      .then(r => r.json())
+      .then(effects => {
+        Object.assign(effectStates, effects);
+        renderEffectButtons();
+        if (effectStates.strobe) {
+          document.getElementById('strobe-warning').style.display = 'block';
+        }
+      })
+      .catch(err => console.error('Error fetching effects:', err));
+
+    // Connect to SSE for real-time updates
+    function connectToEffectsStream() {
+      eventSource = new EventSource('/stream');
+
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'effect') {
+          updateEffectButton(data.name, data.active);
+        } else if (data.type === 'init' && data.effects) {
+          Object.assign(effectStates, data.effects);
+          renderEffectButtons();
+        }
+      };
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        setTimeout(connectToEffectsStream, 3000);
+      };
+    }
+
+    connectToEffectsStream();
+  </script>
+
+  <div class="page-nav">
+    <button class="page-nav-btn" onclick="this.parentElement.classList.toggle('open')">☰ Pages</button>
+    <div class="page-nav-menu">
+      <a href="/stage">🎭 Stage</a>
+      <a href="/camera">📷 Camera</a>
+      <a href="/gallery">🖼️ Gallery</a>
+    </div>
+  </div>
+  <script>document.addEventListener('click',e=>{const n=document.querySelector('.page-nav');if(n&&!n.contains(e.target))n.classList.remove('open');});</script>
+</body>
+</html>

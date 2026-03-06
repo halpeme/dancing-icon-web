@@ -94,6 +94,17 @@
       transition: transform 0.4s ease-in-out;
     }
 
+    .trail-ghost {
+      position: absolute;
+      pointer-events: none;
+      user-select: none;
+    }
+    .trail-ghost img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
     /* Toggle QR button */
     #toggle-qr {
       position: fixed;
@@ -290,6 +301,10 @@
       display: none;
     }
     body.race-active #race-track { display: block; }
+    .sticker.racing img {
+      filter: drop-shadow(3px 0 6px rgba(255,255,255,0.4)) drop-shadow(-1px 0 3px rgba(255,200,0,0.3));
+      transition: filter 200ms;
+    }
     .sticker.winner img {
       animation: winnerCelebration 600ms ease-in-out 4;
       filter: drop-shadow(0 0 20px gold) drop-shadow(0 0 40px #FFD700) !important;
@@ -322,29 +337,49 @@
       100% { opacity: 0; transform: translate(-50%,-50%) scale(0.9); }
     }
 
-    #nav-links {
+    .page-nav {
       position: fixed;
-      bottom: 20px;
-      left: 20px;
+      top: 16px;
+      right: 16px;
       z-index: 999;
-      display: flex;
-      gap: 10px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
-    #nav-links a {
-      display: inline-block;
-      padding: 10px 18px;
-      background: rgba(255, 255, 255, 0.85);
-      color: #080808;
-      text-decoration: none;
+    .page-nav-btn {
+      padding: 8px 16px;
+      background: rgba(0,0,0,0.65);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.2);
       border-radius: 20px;
       font-size: 13px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-weight: 500;
-      transition: background 0.2s ease;
+      font-weight: 600;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+      transition: background 0.2s;
     }
-    #nav-links a:hover {
-      background: rgba(255, 255, 255, 0.95);
+    .page-nav-btn:hover { background: rgba(0,0,0,0.85); }
+    .page-nav-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      background: rgba(20,20,20,0.95);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 12px;
+      overflow: hidden;
+      min-width: 150px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
     }
+    .page-nav.open .page-nav-menu { display: block; }
+    .page-nav-menu a {
+      display: block;
+      padding: 11px 18px;
+      color: #eee;
+      text-decoration: none;
+      font-size: 14px;
+      transition: background 0.15s;
+    }
+    .page-nav-menu a:hover { background: rgba(255,255,255,0.1); }
   </style>
 </head>
 <body>
@@ -370,9 +405,6 @@
   <canvas id="ripple-canvas"></canvas>
 
   <!-- Race Feature UI -->
-  <div id="controls-panel">
-    <button id="start-race-btn">🏁 Start Race</button>
-  </div>
   <div id="race-countdown"></div>
   <div id="race-track"></div>
   <div id="finish-line"></div>
@@ -484,6 +516,10 @@
     const stickers = new Map();
     const stickerArray = []; // Persistent array for collision detection (avoids Array.from() per frame)
     const STICKER_SIZE = 350; // pixels (matches CSS)
+
+    // Psychedelic effects state
+    const activeEffects = new Set();
+    let effectClock = 0; // Milliseconds elapsed for effect timing
 
     function randomRange(min, max) {
       return Math.random() * (max - min) + min;
@@ -926,6 +962,61 @@
       }
     }
 
+    // ========== PSYCHEDELIC EFFECTS ENGINE ==========
+
+    function applyPsychedelicEffects(img, physics, deltaTime) {
+      if (activeEffects.size === 0) {
+        // Clear all filters when no effects active
+        img.style.filter = '';
+        return { extraScale: 1, gravityBounceOffset: 0 };
+      }
+
+      let filterParts = [];
+      let extraScale = 1;
+
+      // Rainbow hue-cycle effect
+      if (activeEffects.has('rainbow')) {
+        const hueAngle = (effectClock / 3000 * 360) % 360;
+        filterParts.push(`hue-rotate(${hueAngle}deg)`);
+        filterParts.push('saturate(2)');
+      }
+
+      // Strobe effect (4 Hz = 250ms period)
+      if (activeEffects.has('strobe')) {
+        const period = 250; // milliseconds for 4 Hz
+        const phase = (effectClock % period) / period;
+        // 0-0.25: bright, 0.25-0.5: dim, 0.5-0.75: bright, 0.75-1: dim
+        const brightness = phase < 0.25 || (phase >= 0.5 && phase < 0.75) ? 2.5 : 0.7;
+        filterParts.push(`brightness(${brightness})`);
+      }
+
+      // Size pulse effect
+      if (activeEffects.has('size_pulse')) {
+        const sineValue = Math.sin((effectClock / 1000) * Math.PI * 2);
+        extraScale = 1 + sineValue * 0.2;
+      }
+
+      // Disco spin effect
+      if (activeEffects.has('disco_spin')) {
+        physics.currentYRotation += 120 * (deltaTime / 1000);
+      }
+
+      // Gravity bounce effect (sine wave bounce - visual offset only, does not mutate physics.y)
+      let gravityBounceOffset = 0;
+      if (activeEffects.has('gravity_bounce')) {
+        const sineValue = Math.sin(effectClock / 500);
+        gravityBounceOffset = sineValue * 40; // Max 40px visual offset
+      }
+
+      if (filterParts.length > 0) {
+        img.style.filter = filterParts.join(' ');
+      } else {
+        img.style.filter = '';
+      }
+
+      return { extraScale, gravityBounceOffset };
+    }
+
     // Update physics for all stickers
     function updatePhysics(deltaTime, timestamp) {
       if (raceState.active) {
@@ -985,7 +1076,7 @@
           }
         } else {
           if (timestamp - physics.lastMoveTime >= physics.nextMoveDelay) {
-            if (Math.random() < 0.08) {
+            if (!activeEffects.has('disco_spin') && Math.random() < 0.08) {
               startSpin(physics);
             } else {
               applyDanceMove(physics);
@@ -1033,13 +1124,43 @@
     }
 
     // Render stickers
-    function render() {
+    function render(deltaTime) {
       for (const [id, sticker] of stickers) {
         const { div, img, physics } = sticker;
 
+        // Apply psychedelic effects
+        const effects = applyPsychedelicEffects(img, physics, deltaTime);
+
+        // Motion trail: capture last frame's position before updating
+        if (activeEffects.has('motion_trail') && !physics.isEntering) {
+          if (div.style.left) { // skip first frame before position is set
+            sticker.trailHistory.unshift({
+              left: div.style.left,
+              top: div.style.top,
+              transform: img.style.transform
+            });
+            if (sticker.trailHistory.length > 5) sticker.trailHistory.pop();
+          }
+          for (let i = 0; i < sticker.trailGhosts.length; i++) {
+            const ghost = sticker.trailGhosts[i];
+            const hist = sticker.trailHistory[i];
+            if (hist) {
+              ghost.style.left = hist.left;
+              ghost.style.top = hist.top;
+              ghost.children[0].style.transform = hist.transform;
+              ghost.style.opacity = String((0.5 * (1 - i / sticker.trailGhosts.length)).toFixed(2));
+            } else {
+              ghost.style.opacity = '0';
+            }
+          }
+        } else {
+          if (sticker.trailHistory.length > 0) sticker.trailHistory.length = 0;
+          for (const ghost of sticker.trailGhosts) ghost.style.opacity = '0';
+        }
+
         // Update position (centered on physics.x, physics.y)
         div.style.left = (physics.x - STICKER_SIZE / 2) + 'px';
-        div.style.top = (physics.y - STICKER_SIZE / 2) + 'px';
+        div.style.top = (physics.y - STICKER_SIZE / 2 - effects.gravityBounceOffset) + 'px';
 
         // Update image transform
         if (physics.isEntering) {
@@ -1054,7 +1175,7 @@
           if (physics.entranceStyle === 'superhero') {
             // Superhero landing: drop from top with rotation and impact
             const progress = physics.entranceProgress;
-            let entranceScale = easeInOutBounce(progress);
+            let entranceScale = easeInOutBounce(progress) * effects.extraScale;
 
             // Add impact scale spike at 60-70% progress
             if (progress >= 0.6 && progress <= 0.7) {
@@ -1076,15 +1197,21 @@
             `;
           } else {
             // Original 'pop' entrance: smooth scale with overshoot
-            const entranceScale = easeOutBack(physics.entranceProgress);
+            const entranceScale = easeOutBack(physics.entranceProgress) * effects.extraScale;
             img.style.transform = `scale(${entranceScale})`;
           }
         } else if (physics.isSpinning) {
           // After entrance: apply spin animation
-          img.classList.add('spinning');
+          // Skip CSS transition if disco-spin is active to allow per-frame updates
+          if (activeEffects.has('disco_spin')) {
+            img.classList.remove('spinning');
+          } else {
+            img.classList.add('spinning');
+          }
           img.classList.remove('dancing');
           img.style.transform = `
             rotateY(${physics.currentYRotation}deg)
+            scale(${effects.extraScale})
           `;
         } else {
           // After entrance: apply full dance animation
@@ -1094,7 +1221,7 @@
             rotateY(${physics.currentYRotation}deg)
             rotate(${physics.danceRotation}deg)
             translate(${physics.danceTranslateX}px, ${physics.danceTranslateY}px)
-            scale(${physics.danceScale})
+            scale(${physics.danceScale * effects.extraScale})
             skewX(${physics.danceSkewX}deg)
           `;
         }
@@ -1107,9 +1234,12 @@
       const deltaTime = timestamp - lastTimestamp || 16;
       lastTimestamp = timestamp;
 
+      // Increment effect clock for psychedelic effects
+      effectClock += deltaTime;
+
       updatePhysics(deltaTime, timestamp);
       updateRipples(deltaTime);
-      render();
+      render(deltaTime);
       renderRipples();
 
       requestAnimationFrame(animationLoop);
@@ -1136,8 +1266,32 @@
       const x = (stickerData.x / 100) * window.innerWidth;
       const y = (stickerData.y / 100) * window.innerHeight;
 
+      const scale = stickerData.scale || 1.0;
+      if (scale !== 1.0) {
+        const px = Math.round(STICKER_SIZE * scale) + 'px';
+        div.style.width = px;
+        div.style.height = px;
+      }
+
       const physics = createPhysicsState(x, y);
-      const stickerObj = { div, img, physics };
+
+      // Create 5 trail ghost elements (initially hidden, reused each frame)
+      const trailGhosts = [];
+      const ghostSize = Math.round(STICKER_SIZE * (stickerData.scale || 1.0));
+      for (let i = 0; i < 5; i++) {
+        const ghostDiv = document.createElement('div');
+        ghostDiv.className = 'trail-ghost';
+        ghostDiv.style.width = ghostSize + 'px';
+        ghostDiv.style.height = ghostSize + 'px';
+        ghostDiv.style.opacity = '0';
+        const ghostImg = document.createElement('img');
+        ghostImg.src = img.src;
+        ghostDiv.appendChild(ghostImg);
+        stage.insertBefore(ghostDiv, div); // behind the main sticker
+        trailGhosts.push(ghostDiv);
+      }
+
+      const stickerObj = { div, img, physics, scale, trailGhosts, trailHistory: [] };
       stickers.set(stickerData.id, stickerObj);
       stickerArray.push(stickerObj); // Update persistent array
 
@@ -1159,9 +1313,10 @@
 
     // Remove sticker from stage
     function removeSticker(id) {
-      if (raceState.active && id === raceState.winnerId) endRace();
+      if (raceState.active && (id === raceState.winnerId || stickers.size - 1 < 2)) endRace();
       const sticker = stickers.get(id);
       if (sticker) {
+        if (sticker.trailGhosts) sticker.trailGhosts.forEach(g => g.remove());
         sticker.div.remove();
         stickers.delete(id);
 
@@ -1200,6 +1355,15 @@
             // Clear existing and load initial stickers
             stickers.forEach((_, id) => removeSticker(id));
             data.stickers.forEach(s => addSticker(s));
+            // Hydrate active effects from server
+            if (data.effects) {
+              activeEffects.clear();
+              for (const [name, isActive] of Object.entries(data.effects)) {
+                if (isActive) {
+                  activeEffects.add(name);
+                }
+              }
+            }
             break;
 
           case 'add':
@@ -1208,6 +1372,56 @@
 
           case 'remove':
             removeSticker(data.id);
+            break;
+
+          case 'resize': {
+            console.log('[resize] id:', data.id, 'scale:', data.scale, 'found:', stickers.has(data.id));
+            const s = stickers.get(data.id);
+            if (s) {
+              const px = Math.round(STICKER_SIZE * data.scale) + 'px';
+              console.log('[resize] setting size to', px);
+              s.div.style.width = px;
+              s.div.style.height = px;
+              s.scale = data.scale;
+            }
+            break;
+          }
+
+          case 'effect':
+            // Handle psychedelic effect toggle
+            if (data.active) {
+              activeEffects.add(data.name);
+            } else {
+              activeEffects.delete(data.name);
+              // When gravity bounce deactivates, stickers may have drifted — nudge them back in-bounds
+              if (data.name === 'gravity_bounce') {
+                const stageHeight = window.innerHeight;
+                const radius = STICKER_SIZE / 2;
+                for (const [, sticker] of stickers) {
+                  const p = sticker.physics;
+                  if (p.y + radius > stageHeight) {
+                    p.y = stageHeight - radius;
+                    p.vy = -Math.abs(p.vy);
+                  }
+                }
+              }
+              // When disco spin deactivates, normalize rotation and clear spin state
+              if (data.name === 'disco_spin') {
+                for (const [, sticker] of stickers) {
+                  const p = sticker.physics;
+                  p.currentYRotation = Math.round(p.currentYRotation / 360) * 360;
+                  p.isSpinning = false;
+                  p.lastMoveTime = performance.now();
+                  p.nextMoveDelay = randomRange(80, 250);
+                }
+              }
+              if (data.name === 'motion_trail') {
+                for (const [, sticker] of stickers) {
+                  if (sticker.trailHistory) sticker.trailHistory.length = 0;
+                  if (sticker.trailGhosts) sticker.trailGhosts.forEach(g => { g.style.opacity = '0'; });
+                }
+              }
+            }
             break;
 
           case 'race_start':
@@ -1247,9 +1461,7 @@
         return;
       }
       if (raceState.active) return;
-      document.getElementById('start-race-btn').disabled = true;
-      fetch('/race/start', { method: 'POST' })
-        .catch(() => { document.getElementById('start-race-btn').disabled = false; });
+      fetch('/race/start', { method: 'POST' });
     }
 
     function beginRaceWithWinner(winnerId) {
@@ -1311,11 +1523,11 @@
     }
 
     function beginRacingPhase() {
+      if (!raceState.active) return;  // race was cancelled during countdown
       raceState.phase = 'racing';
       raceState.startTime = performance.now();
-      for (const [id] of stickers) {
-        const el = document.getElementById('sticker-' + id);
-        if (el) el.classList.add('racing');
+      for (const [id, sticker] of stickers) {
+        sticker.div.classList.add('racing');
       }
     }
 
@@ -1416,6 +1628,8 @@
         }
       }
       document.body.classList.remove('race-active');
+      const cdEl = document.getElementById('race-countdown');
+      if (cdEl) { cdEl.classList.remove('active'); cdEl.textContent = ''; }
       raceState.savedPhysics.clear();
       raceState.laneAssignments.clear();
       raceState.returnFromPositions.clear();
@@ -1424,7 +1638,7 @@
       if (btn) btn.disabled = false;
     }
 
-    document.getElementById('start-race-btn').addEventListener('click', startRace);
+    // Race button now lives on the controls page (/)
 
     // Start
     audioSystem.init();
@@ -1433,10 +1647,15 @@
   </script>
 
   {% if not overlay_mode %}
-  <nav id="nav-links">
-    <a href="/camera">Camera</a>
-    <a href="/gallery">Gallery</a>
-  </nav>
+  <div class="page-nav">
+    <button class="page-nav-btn" onclick="this.parentElement.classList.toggle('open')">☰ Pages</button>
+    <div class="page-nav-menu">
+      <a href="/">🎪 Controls</a>
+      <a href="/camera">📷 Camera</a>
+      <a href="/gallery">🖼️ Gallery</a>
+    </div>
+  </div>
+  <script>document.addEventListener('click',e=>{const n=document.querySelector('.page-nav');if(n&&!n.contains(e.target))n.classList.remove('open');});</script>
   {% endif %}
 </body>
 </html>

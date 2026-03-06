@@ -34,8 +34,9 @@ launcher.py                 Interactive mode selector (web/overlay/both)
 app.py                      Flask server (SSE, background removal, QR)
 overlay.py                  Electron launcher (Flask + Electron)
 electron/main.js            Transparent multi-display window
-templates/stage.html        Animation loop (964 lines)
+templates/stage.html        Animation loop + effects engine
 templates/camera.html       Mobile capture + rotation
+templates/controls.html     Operator UI (effects, race, gallery controls)
 static/sounds/              5 entrance MP3s
 ```
 
@@ -75,8 +76,14 @@ Desktop: overlay.py → Flask → Electron → stage.html?mode=overlay
 - `add` - New sticker: id, image_base64, x, y, sound
 - `remove` - Sticker ID (FIFO eviction > 20)
 
+### Effects System
+- Toggled via `POST /effect` with `{name, active}` — SSE-broadcast to all clients
+- Active effects: `rainbow`, `strobe`, `disco_spin`, `size_pulse`, `gravity_bounce`, `motion_trail`
+- `motion_trail`: each sticker has 5 pre-created ghost `<div>` elements (`trailGhosts`) + `trailHistory[]` (last 5 positions); ghosts fade opacity 0.45→0.05
+- Deactivation cleanup blocks in SSE handler (per-effect) + `removeSticker()` removes ghost DOM nodes
+
 ### Sticker State
-Tracks: `currentYRotation`, `lastMoveTime`, `nextMoveDelay`, `isSpinning`, `spinStartTime`, `spinDuration`, `entranceProgress`, `entranceStyle`
+Tracks: `currentYRotation`, `lastMoveTime`, `nextMoveDelay`, `isSpinning`, `spinStartTime`, `spinDuration`, `entranceProgress`, `entranceStyle`, `trailGhosts`, `trailHistory`
 
 ### EXIF Auto-Correction
 Server reads EXIF orientation, auto-corrects rotated phone photos pre-removal.

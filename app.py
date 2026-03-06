@@ -39,6 +39,15 @@ stickers = []  # List of {id, image (URL), x, y}
 MAX_STICKERS = 20
 sse_clients = []  # Active SSE client queues
 
+# Psychedelic effects state
+VALID_EFFECTS = {
+    'rainbow', 'strobe', 'disco_spin', 'size_pulse', 'gravity_bounce', 'motion_trail'
+}
+active_effects = {
+    'rainbow': False, 'strobe': False, 'disco_spin': False,
+    'size_pulse': False, 'gravity_bounce': False, 'motion_trail': False
+}
+
 # Background removal sessions - lazy-loaded for faster startup
 # Only preload 'fast' model, others loaded on first use
 bg_sessions = {
@@ -148,8 +157,17 @@ def add_sticker(image_url):
 # Routes
 
 @app.route('/')
+def controls():
+    """Controls page - QR code and navigation"""
+    local_ip = get_local_ip()
+    camera_url = f"http://{local_ip}:5000/camera"
+    qr_base64 = generate_qr_base64(camera_url)
+    return render_template('controls.html', qr_base64=qr_base64, camera_url=camera_url)
+
+
+@app.route('/stage')
 def stage():
-    """Stage page - displays QR and dancing stickers"""
+    """Stage page - full-screen dancing stickers"""
     local_ip = get_local_ip()
     camera_url = f"http://{local_ip}:5000/camera"
     qr_base64 = generate_qr_base64(camera_url)
@@ -345,13 +363,11 @@ def upload():
 
 @app.route('/api/active_stickers')
 def get_active_stickers():
-    """Get list of currently active sticker filenames"""
-    # Extract filenames from active stickers' image URLs
+    """Get list of currently active sticker filenames with scale"""
     active_filenames = []
     for sticker in stickers:
-        # image URL format: '/uploads/20260208_143022_456.webp'
         filename = sticker['image'].split('/')[-1]
-        active_filenames.append(filename)
+        active_filenames.append({'filename': filename, 'scale': sticker.get('scale', 1.0)})
 
     return jsonify({'active': active_filenames})
 
@@ -505,8 +521,8 @@ def stream():
         sse_clients.append(client_queue)
 
         try:
-            # Send current stickers on connect
-            yield f"data: {json.dumps({'type': 'init', 'stickers': stickers})}\n\n"
+            # Send current stickers and effects on connect
+            yield f"data: {json.dumps({'type': 'init', 'stickers': stickers, 'effects': active_effects})}\n\n"
 
             # Wait for new events
             while True:
@@ -528,6 +544,29 @@ def stream():
     )
 
 
+@app.route('/api/resize_sticker', methods=['POST'])
+def resize_sticker():
+    """Update scale of an active sticker and broadcast to stage"""
+    data = request.get_json()
+    if not data or 'filename' not in data or 'scale' not in data:
+        return jsonify({'error': 'Missing filename or scale'}), 400
+
+    filename = data['filename']
+    source = data.get('source', 'uploads')
+    scale = float(data['scale'])
+    scale = max(0.25, min(3.0, scale))
+
+    image_url = f"/images/{filename}" if source == 'images' else f"/uploads/{filename}"
+
+    for sticker in stickers:
+        if sticker['image'] == image_url:
+            sticker['scale'] = scale
+            broadcast({'type': 'resize', 'id': sticker['id'], 'scale': scale})
+            return jsonify({'success': True, 'scale': scale})
+
+    return jsonify({'error': 'Sticker not active'}), 404
+
+
 @app.route('/race/start', methods=['POST'])
 def race_start():
     """Broadcast race_start SSE event to all clients with a random winner."""
@@ -536,6 +575,36 @@ def race_start():
     winner_id = random.choice(stickers)['id']
     broadcast({'type': 'race_start', 'winnerId': winner_id})
     return jsonify({'ok': True, 'winnerId': winner_id})
+
+
+@app.route('/api/effects')
+def get_effects():
+    """Get current state of all psychedelic effects"""
+    return jsonify(active_effects)
+
+
+@app.route('/effect/<name>', methods=['POST'])
+def toggle_effect(name):
+    """Toggle a psychedelic effect on/off
+
+    Request JSON (optional):
+        state: bool - Set to specific state (if omitted, toggles)
+    """
+    if name not in VALID_EFFECTS:
+        return jsonify({'error': f'Invalid effect: {name}'}), 400
+
+    data = request.get_json() or {}
+
+    # Toggle or set to specific state
+    if 'state' in data:
+        active_effects[name] = bool(data['state'])
+    else:
+        active_effects[name] = not active_effects[name]
+
+    # Broadcast effect state change to all clients
+    broadcast({'type': 'effect', 'name': name, 'active': active_effects[name]})
+
+    return jsonify({'success': True, 'name': name, 'active': active_effects[name]})
 
 
 if __name__ == '__main__':
